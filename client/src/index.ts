@@ -40,12 +40,26 @@ export interface RemoteGpuClientOptions {
   /** Called with human-readable progress/status messages. */
   onStatus?: (message: string) => void;
   /** Called once per presented frame; useful for FPS counters. */
-  onFrame?: () => void;
+  onFrame?: (stats: FrameStats) => void;
   /** Called when the connection closes. */
   onClose?: (reason: string) => void;
 }
 
+/** Protocol traffic attributed to one presented frame. */
+export interface FrameStats {
+  /** Protobuf messages received from the server since the previous frame
+   * (the Present command itself included). */
+  messages: number;
+  /** Total encoded size of those messages, in bytes. */
+  bytes: number;
+}
+
 export class RemoteGpuClient {
+  /** Protocol messages received since the last presented frame. */
+  private frameMessages = 0;
+  /** Bytes received since the last presented frame. */
+  private frameBytes = 0;
+
   private readonly executor: CommandExecutor | null;
   /** Commands run strictly in order; this chain serializes the async ones. */
   private queue: Promise<void> = Promise.resolve();
@@ -60,11 +74,21 @@ export class RemoteGpuClient {
   ) {
     this.executor = device
       ? new CommandExecutor(device, options.canvas ?? null, (kind) => this.send(kind),
-                            () => options.onFrame?.())
+                            () => {
+                              options.onFrame?.({
+                                messages: this.frameMessages,
+                                bytes: this.frameBytes,
+                              });
+                              this.frameMessages = 0;
+                              this.frameBytes = 0;
+                            })
       : null;
     this.watchCanvasSize();
     ws.onmessage = (event) => {
-      this.handleEnvelope(fromBinary(EnvelopeSchema, new Uint8Array(event.data as ArrayBuffer)));
+      const data = new Uint8Array(event.data as ArrayBuffer);
+      this.frameMessages += 1;
+      this.frameBytes += data.byteLength;
+      this.handleEnvelope(fromBinary(EnvelopeSchema, data));
     };
     ws.onclose = (event) => {
       options.onClose?.(event.reason || `connection closed (code ${event.code})`);
