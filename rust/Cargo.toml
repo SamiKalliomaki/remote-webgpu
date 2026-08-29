@@ -1,0 +1,8 @@
+[workspace]
+resolver = "2"
+members = [
+    "remote-wgpu-sys",
+    "remote-wgpu-runtime",
+    "wgpu",
+    "winit",
+]

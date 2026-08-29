@@ -1,0 +1,49 @@
+[package]
+name = "wgpu"
+version = "30.0.0-remote"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "wgpu-compatible API backed by the remote_webgpu websocket transport"
+
+[dependencies]
+remote-wgpu-sys = { path = "../remote-wgpu-sys" }
+remote-wgpu-runtime = { path = "../remote-wgpu-runtime" }
+bitflags = "2"
+log = "0.4"
+
+# Feature names accepted for compatibility with the real wgpu manifest; the
+# remote backend always forwards everything, so they are all no-ops.
+[features]
+angle = []
+counters = []
+custom = []
+default = []
+drm = []
+dx12 = []
+exhaust = []
+fragile-send-sync-non-atomic-wasm = []
+gles = []
+glsl = []
+metal = []
+naga-ir = []
+noop = []
+serde = []
+spirv = []
+static-dxc = []
+std = []
+strict_asserts = []
+trace = []
+vulkan = []
+vulkan-portability = []
+web = []
+webgl = []
+webgpu = []
+wgsl = []
+
+[dev-dependencies]
+winit = { path = "../winit" }
+pollster = "0.4"
+
+[[example]]
+name = "multi_client"

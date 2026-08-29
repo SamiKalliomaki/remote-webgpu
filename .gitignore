@@ -29,3 +29,5 @@ npm-debug.log*
 *.swp
 *~
 .DS_Store
+rust/target/
+rust/.wgpu-examples/

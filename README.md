@@ -11,6 +11,7 @@ browser tab exposing `navigator.gpu`).
 | `client/` | `remote-webgpu-client`, the TypeScript client library.  Connects to the server, obtains a local adapter/device from `navigator.gpu` and performs the handshake. |
 | `example_client/` | Web page with a full-screen canvas that uses the client library. |
 | `example_server/` | Native example app (spinning triangle) built on `remote_webgpu`.  Owns all the websocket code, hands the library a send callback, pumps received messages into it, and renders at whatever size the client reports for its canvas — no window system needed server-side. |
+| `rust/` | Rust crates: a drop-in `wgpu` replacement backed by `remote_webgpu`, a `winit`-compatible event loop that runs the websocket server instead of opening a window, plus the FFI/runtime crates underneath (see `rust/README.md`).  Multiple clients can connect; each becomes its own `Window` with its own `Adapter`.  `./run_wgpu_example.sh <name>` runs any upstream wgpu demo against them. |
 | `e2e/` | End-to-end tests, one executable per feature: `./e2e/run.sh` builds everything, starts a native test server and a headless chromium per test, and verifies buffers, compute, rendering, queries, error scopes and readbacks over a real websocket -- plus a bit-for-bit golden-screenshot comparison of the spinning-triangle demo. |
 
 ## Protocol so far
@@ -40,7 +41,7 @@ browser tab exposing `navigator.gpu`).
      and decodes an image into a texture and reports its dimensions).
    The client also sends `Event` notifications: a built-in canvas-resize
    event and user-defined named events (the example client streams
-   `"mousemove"`), plus unsolicited `UncapturedError` / `DeviceLost`
+   `"mousemove"` and `"keydown"`/`"keyup"`), plus unsolicited `UncapturedError` / `DeviceLost`
    reports that fire the callbacks from the device descriptor.  The server
    application listens to events via `wgpuRemoteAdapterSetEventCallback()`;
    on a resize it reconfigures the surface, which is what actually resizes

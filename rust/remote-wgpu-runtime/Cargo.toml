@@ -1,0 +1,11 @@
+[package]
+name = "remote-wgpu-runtime"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[dependencies]
+remote-wgpu-sys = { path = "../remote-wgpu-sys" }
+tungstenite = "0.24"
+log = "0.4"

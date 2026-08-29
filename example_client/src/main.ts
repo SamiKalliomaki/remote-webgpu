@@ -52,6 +52,22 @@ try {
     ]);
     client.sendEvent("mousemove", new Uint8Array(position.buffer));
   });
+
+  /* Forward key presses as user-defined events: "keydown"/"keyup" with a
+   * UTF-8 payload of "<code>\n<key>\n<repeat 0|1>" (the browser's
+   * KeyboardEvent.code / .key names).  Keys that would scroll the page are
+   * suppressed locally; the server application is the one looking at them. */
+  const encoder = new TextEncoder();
+  for (const type of ["keydown", "keyup"] as const) {
+    window.addEventListener(type, (event) => {
+      if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Tab"]
+          .includes(event.code)) {
+        event.preventDefault();
+      }
+      const payload = `${event.code}\n${event.key}\n${event.repeat ? 1 : 0}`;
+      client.sendEvent(type, encoder.encode(payload));
+    });
+  }
 } catch (error) {
   log(`failed: ${error instanceof Error ? error.message : String(error)}`);
 }

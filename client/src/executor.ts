@@ -130,17 +130,18 @@ export class CommandExecutor {
   private context: GPUCanvasContext | null = null;
   private warnedWriteTimestamp = false;
   /**
-   * Commands of the frame currently being received, buffered from
-   * surfaceGetCurrentTexture onwards.  The browser hands the canvas's
-   * current texture to the compositor at the next rendering update after
-   * getCurrentTexture() -- drawn into or not -- so acquiring it and
-   * submitting must happen in the same task.  Executing command-by-command
-   * as messages trickle in lets a vsync land between the two, which showed
-   * up as intermittent black frames.  Instead, everything from the acquire
-   * to the submit is deferred and replayed synchronously inside the
-   * requestAnimationFrame callback that answers Present.
+   * Offscreen texture standing in for the canvas's current texture.  The
+   * browser hands the canvas's real texture to the compositor at the next
+   * rendering update after getCurrentTexture() -- drawn into or not -- so
+   * the server's commands must not touch it directly (a vsync landing
+   * between acquire and submit showed up as intermittent black frames).
+   * Instead the server renders into this texture, at whatever pace its
+   * messages arrive, and Present copies it into the canvas texture inside a
+   * single requestAnimationFrame task.  Created by ConfigureSurface;
+   * re-used from frame to frame (like a real swapchain, its previous
+   * contents are unspecified as far as the server is concerned).
    */
-  private frame: Envelope["kind"][] | null = null;
+  private surfaceTexture: GPUTexture | null = null;
 
   constructor(
     private device: GPUDevice,
@@ -243,22 +244,23 @@ export class CommandExecutor {
   /** Handle one post-handshake command from the server. */
   async execute(kind: Envelope["kind"]): Promise<void> {
     switch (kind.case) {
-      case "surfaceGetCurrentTexture":
-        /* Start of a frame: buffer everything up to the present/readback. */
-        this.frame = [kind];
-        return;
-
       case "present": {
-        const commands = this.frame;
-        this.frame = null;
-        /* Draw inside the animation-frame callback: acquire + submit happen
-         * in one task, right before the compositor takes the frame, and
-         * PresentDone paces the server to the display's refresh rate. */
+        /* Copy the offscreen frame into the canvas inside the
+         * animation-frame callback: acquire + submit happen in one task,
+         * right before the compositor takes the frame, and PresentDone
+         * paces the server to the display's refresh rate. */
         await new Promise<void>((resolve, reject) => {
           const draw = () => {
             try {
-              if (commands)
-                for (const command of commands) this.executeSync(command);
+              if (this.context && this.surfaceTexture) {
+                const encoder = this.device.createCommandEncoder(
+                  { label: "present copy" });
+                encoder.copyTextureToTexture(
+                  { texture: this.surfaceTexture },
+                  { texture: this.context.getCurrentTexture() },
+                  [this.surfaceTexture.width, this.surfaceTexture.height]);
+                this.device.queue.submit([encoder.finish()]);
+              }
               resolve();
             } catch (error) {
               reject(error);
@@ -275,9 +277,6 @@ export class CommandExecutor {
       }
 
       case "mapBuffer": {
-        /* Readback can arrive mid-frame (screenshots): flush the buffered
-         * commands now so the copy is submitted before mapping. */
-        this.flushFrame();
         const m = kind.value;
         const buffer = this.buffer(m.bufferId);
         try {
@@ -363,7 +362,6 @@ export class CommandExecutor {
       }
 
       case "requestDevice": {
-        this.flushFrame();
         const m = kind.value;
         const features = m.requiredFeatures.map((f) =>
           lookup(FEATURE_NAMES, f, "feature name") as GPUFeatureName);
@@ -385,26 +383,18 @@ export class CommandExecutor {
             defaultQueue: { label: m.defaultQueueLabel },
           });
           this.watchDevice(this.device);
-          this.context = null; /* reconfigure binds the new device */
+          /* Reconfiguring binds the new device (and re-creates the
+           * offscreen surface texture on it). */
+          this.context = null;
+          this.surfaceTexture?.destroy();
+          this.surfaceTexture = null;
         }
         return;
       }
 
       default:
-        if (this.frame) {
-          this.frame.push(kind);
-          return;
-        }
         this.executeSync(kind);
     }
-  }
-
-  private flushFrame(): void {
-    if (!this.frame)
-      return;
-    const commands = this.frame;
-    this.frame = null;
-    for (const command of commands) this.executeSync(command);
   }
 
   /** Execute one synchronous command immediately. */
@@ -711,26 +701,37 @@ export class CommandExecutor {
           if (!this.context)
             throw new Error("cannot create a webgpu canvas context");
         }
+        const format = lookup(TEXTURE_FORMATS, m.format, "texture format");
+        /* The canvas texture only ever receives the present-time copy. */
         this.context.configure({
           device: this.device,
-          format: lookup(TEXTURE_FORMATS, m.format, "texture format"),
-          usage: m.usage,
+          format,
+          usage: GPUTextureUsage.COPY_DST,
+          alphaMode: lookupOpt(ALPHA_MODES, m.alphaMode, "alpha mode") ?? "opaque",
+        });
+        this.surfaceTexture?.destroy();
+        this.surfaceTexture = this.device.createTexture({
+          label: "remote surface",
+          size: [m.width, m.height],
+          format,
+          usage: m.usage | GPUTextureUsage.COPY_SRC,
           viewFormats: m.viewFormats.map((f) =>
             lookup(TEXTURE_FORMATS, f, "texture format")),
-          alphaMode: lookupOpt(ALPHA_MODES, m.alphaMode, "alpha mode") ?? "opaque",
         });
         break;
       }
 
       case "surfaceUnconfigure": {
         this.context?.unconfigure();
+        this.surfaceTexture?.destroy();
+        this.surfaceTexture = null;
         break;
       }
 
       case "surfaceGetCurrentTexture": {
-        if (!this.context)
+        if (!this.surfaceTexture)
           throw new Error("surfaceGetCurrentTexture before configureSurface");
-        this.objects.set(kind.value.textureId, this.context.getCurrentTexture());
+        this.objects.set(kind.value.textureId, this.surfaceTexture);
         break;
       }
 

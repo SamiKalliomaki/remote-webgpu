@@ -1,0 +1,12 @@
+[package]
+name = "winit"
+version = "0.30.999"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "winit-compatible event loop that runs a remote_webgpu websocket server"
+
+[dependencies]
+remote-wgpu-sys = { path = "../remote-wgpu-sys" }
+remote-wgpu-runtime = { path = "../remote-wgpu-runtime" }
+log = "0.4"
