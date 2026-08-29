@@ -27,6 +27,7 @@ runs a subset.
 | `compute` | A compute pipeline with an implicit "auto" layout via `getBindGroupLayout`, a dispatch and a verified readback. |
 | `render` | `writeTexture` + samplers + texture bind groups, depth/stencil, blending and an indexed draw, with exact pixel verification of the render target. |
 | `queries` | Occlusion queries around draws, `resolveQuerySet`, and verified sample counts (positive for a full-screen draw, zero for none). |
+| `image` | The texture-from-URL extension: the client fetches and decodes `web/test-image.png` into a texture (verified texel-by-texel over a readback), and a missing URL fails cleanly through the callback. |
 | `async` | The asynchronous round-trips: clean and dirty error scopes (a too-large buffer must surface as a caught validation error), `onSubmittedWorkDone` and `getCompilationInfo`. |
 | `golden` | The rendering/present path end to end: `spinning_triangle` draws 30 frames paced by the client's vsync acks and reads the final frame back; the triangle rotates a fixed angle per frame and `web/index.html` pins the canvas size, so the PPM is compared **bit-for-bit** against `golden/triangle.ppm`. |
 

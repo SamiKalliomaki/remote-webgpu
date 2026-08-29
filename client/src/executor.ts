@@ -309,6 +309,59 @@ export class CommandExecutor {
         return;
       }
 
+      case "loadTextureFromUrl": {
+        /* Runs in the background: the server cannot reference the texture
+         * id before our TextureLoaded reply reaches it, so later commands
+         * need not wait for the fetch. */
+        const m = kind.value;
+        void (async () => {
+          try {
+            if (typeof fetch !== "function" || typeof createImageBitmap !== "function")
+              throw new Error("image loading needs fetch/createImageBitmap");
+            const response = await fetch(m.url);
+            if (!response.ok)
+              throw new Error(`HTTP ${response.status} for ${m.url}`);
+            const bitmap = await createImageBitmap(await response.blob(), {
+              colorSpaceConversion: "none",
+              premultiplyAlpha: "none",
+            });
+            try {
+              const texture = this.device.createTexture({
+                label: m.label,
+                format: "rgba8unorm",
+                size: { width: bitmap.width, height: bitmap.height },
+                usage: m.usage,
+              });
+              this.device.queue.copyExternalImageToTexture(
+                { source: bitmap },
+                { texture },
+                { width: bitmap.width, height: bitmap.height });
+              this.objects.set(m.textureId, texture);
+              this.reply({
+                case: "textureLoaded",
+                value: {
+                  requestId: m.requestId,
+                  width: bitmap.width,
+                  height: bitmap.height,
+                },
+              });
+            } finally {
+              bitmap.close();
+            }
+          } catch (error) {
+            this.reply({
+              case: "textureLoaded",
+              value: {
+                requestId: m.requestId,
+                failed: true,
+                message: error instanceof Error ? error.message : String(error),
+              },
+            });
+          }
+        })();
+        return;
+      }
+
       case "requestDevice": {
         this.flushFrame();
         const m = kind.value;

@@ -112,6 +112,46 @@ typedef struct WGPURemoteEventCallbackInfo {
 WGPU_EXPORT void wgpuRemoteAdapterSetEventCallback(WGPUAdapter adapter,
                                                    WGPURemoteEventCallbackInfo callbackInfo);
 
+/* ------------------------------------------------------------------ */
+/* textures from URLs                                                 */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Result of wgpuRemoteDeviceLoadTextureFromURL().  On success `texture` is
+ * a ready-to-use rgba8unorm 2D texture holding the decoded image (query
+ * its size with wgpuTextureGetWidth/Height); the callee owns the reference
+ * and releases it as usual.  On error `texture` is NULL and `message`
+ * says why (it points into the received message; copy it to keep it).
+ */
+typedef void (*WGPURemoteTextureLoadCallback)(WGPUStatus status,
+                                              WGPUTexture texture,
+                                              WGPUStringView message,
+                                              void *userdata1, void *userdata2);
+
+typedef struct WGPURemoteTextureLoadCallbackInfo {
+    WGPURemoteTextureLoadCallback callback;
+    void *userdata1;
+    void *userdata2;
+} WGPURemoteTextureLoadCallbackInfo;
+
+/*
+ * Ask the client to load an image from `url` into a texture: it fetches
+ * the URL (relative URLs resolve against the client's page, and the
+ * browser's CORS rules apply), decodes it, and uploads the pixels into a
+ * fresh rgba8unorm 2D texture.  The image's dimensions are only known
+ * client-side, so the texture arrives through the callback, which fires
+ * from inside wgpuRemoteAdapterReceiveData() once the client's reply is
+ * pumped in.
+ *
+ * `usage` is the WGPUTextureUsage the application needs (0 defaults to
+ * TextureBinding); the bits the upload itself requires (CopyDst and
+ * RenderAttachment) are always added on both sides.
+ */
+WGPU_EXPORT WGPUFuture wgpuRemoteDeviceLoadTextureFromURL(WGPUDevice device,
+                                                          WGPUStringView url,
+                                                          WGPUTextureUsage usage,
+                                                          WGPURemoteTextureLoadCallbackInfo callbackInfo);
+
 typedef void (*WGPURemoteVsyncCallback)(void *userdata1, void *userdata2);
 
 typedef struct WGPURemoteVsyncCallbackInfo {

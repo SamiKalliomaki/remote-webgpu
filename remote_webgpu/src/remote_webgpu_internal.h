@@ -36,6 +36,7 @@ typedef enum RwRequestType {
     RW_REQUEST_POP_ERROR,   /* PopErrorScope      -> ErrorScopeResult */
     RW_REQUEST_WORK_DONE,   /* OnSubmittedWorkDone-> WorkDone */
     RW_REQUEST_COMPILATION, /* GetCompilationInfo -> CompilationInfoResult */
+    RW_REQUEST_TEXTURE_LOAD,/* LoadTextureFromUrl -> TextureLoaded */
 } RwRequestType;
 
 typedef struct RwRequest {
@@ -43,8 +44,9 @@ typedef struct RwRequest {
     uint64_t request_id;
     uint64_t future_id;
     RwRequestType type;
-    /* RW_REQUEST_MAP: the buffer being mapped (ref held). */
-    struct RemoteHandle *buffer;
+    /* RW_REQUEST_MAP: the buffer being mapped; RW_REQUEST_TEXTURE_LOAD:
+     * the texture being filled (ref held either way). */
+    struct RemoteHandle *handle;
     WGPUMapMode map_mode;
     uint64_t map_offset;
     union {
@@ -52,6 +54,7 @@ typedef struct RwRequest {
         WGPUPopErrorScopeCallbackInfo pop_error;
         WGPUQueueWorkDoneCallbackInfo work_done;
         WGPUCompilationInfoCallbackInfo compilation;
+        WGPURemoteTextureLoadCallbackInfo texture_load;
     } cb;
 } RwRequest;
 

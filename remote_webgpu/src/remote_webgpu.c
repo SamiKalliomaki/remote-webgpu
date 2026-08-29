@@ -270,7 +270,7 @@ static void handle_map_buffer_data(RemoteAdapter *adapter,
         return;
     }
 
-    RemoteHandle *buffer = request->buffer;
+    RemoteHandle *buffer = request->handle;
     WGPUBufferMapCallbackInfo callback = request->cb.map;
 
     WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Error;
@@ -363,6 +363,39 @@ static void handle_compilation_info(RemoteAdapter *adapter,
     callback.callback(WGPUCompilationInfoRequestStatus_Success, &info,
                       callback.userdata1, callback.userdata2);
     free(messages);
+}
+
+static void handle_texture_loaded(RemoteAdapter *adapter,
+                                  const RemoteWebgpu__TextureLoaded *loaded)
+{
+    RwRequest *request = request_take(adapter, loaded->request_id,
+                                      RW_REQUEST_TEXTURE_LOAD);
+    if (!request) {
+        fprintf(stderr, "remote_webgpu: unsolicited TextureLoaded\n");
+        return;
+    }
+    RemoteHandle *texture = request->handle;
+    WGPURemoteTextureLoadCallbackInfo callback = request->cb.texture_load;
+    request_finish(adapter, request);
+
+    if (loaded->failed) {
+        const char *why = loaded->message ? loaded->message : "image load failed";
+        fprintf(stderr, "remote_webgpu: texture load failed: %s\n", why);
+        wgpuTextureRelease((WGPUTexture)texture);
+        if (callback.callback)
+            callback.callback(WGPUStatus_Error, NULL, sv(why),
+                              callback.userdata1, callback.userdata2);
+        return;
+    }
+
+    texture->width = loaded->width;
+    texture->height = loaded->height;
+    /* The callback owns the reference held since the request was made. */
+    if (callback.callback)
+        callback.callback(WGPUStatus_Success, (WGPUTexture)texture, sv(NULL),
+                          callback.userdata1, callback.userdata2);
+    else
+        wgpuTextureRelease((WGPUTexture)texture);
 }
 
 static void handle_device_lost(RemoteAdapter *adapter,
@@ -487,6 +520,10 @@ void wgpuRemoteAdapterReceiveData(WGPUAdapter adapter, void const *data, size_t 
 
     case REMOTE_WEBGPU__ENVELOPE__KIND_COMPILATION_INFO_RESULT:
         handle_compilation_info(self, envelope->compilation_info_result);
+        break;
+
+    case REMOTE_WEBGPU__ENVELOPE__KIND_TEXTURE_LOADED:
+        handle_texture_loaded(self, envelope->texture_loaded);
         break;
 
     case REMOTE_WEBGPU__ENVELOPE__KIND_DEVICE_LOST:

@@ -36,7 +36,7 @@ package remote_webgpu;
 // The protocol version both sides speak.  Bump on incompatible changes.
 enum ProtocolVersion {
   PROTOCOL_VERSION_UNSPECIFIED = 0;
-  PROTOCOL_VERSION_CURRENT = 5;
+  PROTOCOL_VERSION_CURRENT = 6;
 }
 
 message Envelope {
@@ -117,6 +117,7 @@ message Envelope {
     DestroyDevice destroy_device = 79;
     SurfaceUnconfigure surface_unconfigure = 80;
     WriteTimestamp write_timestamp = 81;
+    LoadTextureFromUrl load_texture_from_url = 82;
 
     // client -> server replies and notifications (continued)
     ErrorScopeResult error_scope_result = 90;
@@ -124,6 +125,7 @@ message Envelope {
     CompilationInfoResult compilation_info_result = 92;
     UncapturedError uncaptured_error = 93;
     DeviceLost device_lost = 94;
+    TextureLoaded texture_loaded = 95;
   }
 }
 
@@ -501,6 +503,28 @@ message PipelineGetBindGroupLayout {
   uint32 pipeline_id = 1;
   uint32 group_index = 2;
   uint32 id = 3;
+}
+
+/* wgpuRemoteDeviceLoadTextureFromURL (a remote.h extension): the client
+ * fetches the image (relative URLs resolve against the page; CORS rules
+ * apply), decodes it, creates an rgba8unorm texture bound to `texture_id`
+ * and copies the pixels in.  `usage` is extended with the bits
+ * copyExternalImageToTexture requires (CopyDst | RenderAttachment).  The
+ * dimensions are only known client-side, so the reply carries them. */
+message LoadTextureFromUrl {
+  uint64 request_id = 1;
+  uint32 texture_id = 2;
+  string url = 3;
+  uint32 usage = 4;  // WGPUTextureUsage bits
+  string label = 5;
+}
+
+message TextureLoaded {
+  uint64 request_id = 1;
+  bool failed = 2;
+  string message = 3;  // failure reason when failed
+  uint32 width = 4;
+  uint32 height = 5;
 }
 
 /* ------------------------------------------------------------------ */

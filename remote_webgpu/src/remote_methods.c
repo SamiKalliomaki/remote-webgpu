@@ -246,7 +246,7 @@ WGPUFuture wgpuBufferMapAsync(WGPUBuffer buffer, WGPUMapMode mode, size_t offset
     if (!request)
         return future;
     request->cb.map = callbackInfo;
-    request->buffer = self;
+    request->handle = self;
     request->map_mode = mode;
     request->map_offset = offset;
     wgpuBufferAddRef(buffer); /* released when the reply arrives */
@@ -430,6 +430,60 @@ WGPUTextureView wgpuTextureCreateView(WGPUTexture texture,
     if (descriptor)
         free(msg.label);
     return (WGPUTextureView)view;
+}
+
+WGPUFuture wgpuRemoteDeviceLoadTextureFromURL(WGPUDevice device,
+                                              WGPUStringView url,
+                                              WGPUTextureUsage usage,
+                                              WGPURemoteTextureLoadCallbackInfo callbackInfo)
+{
+    RemoteDevice *self = (RemoteDevice *)device;
+    RemoteAdapter *adapter = self->adapter;
+    WGPUFuture future = { 0 };
+
+    if (usage == WGPUTextureUsage_None)
+        usage = WGPUTextureUsage_TextureBinding;
+    /* copyExternalImageToTexture requires these client-side; mirror them
+     * here so wgpuTextureGetUsage() agrees with the real texture. */
+    usage |= WGPUTextureUsage_CopyDst | WGPUTextureUsage_RenderAttachment;
+
+    RemoteHandle *texture = rw_handle_create(self);
+    if (!texture)
+        goto fail;
+    /* Dimensions arrive with the client's reply; the rest is known now. */
+    texture->depth_or_array_layers = 1;
+    texture->mip_level_count = 1;
+    texture->sample_count = 1;
+    texture->dimension = WGPUTextureDimension_2D;
+    texture->format = WGPUTextureFormat_RGBA8Unorm;
+    texture->texture_usage = usage;
+
+    RwRequest *request = rw_request_create(adapter, RW_REQUEST_TEXTURE_LOAD);
+    if (!request) {
+        wgpuTextureRelease((WGPUTexture)texture);
+        goto fail;
+    }
+    request->cb.texture_load = callbackInfo;
+    request->handle = texture;
+    future.id = request->future_id;
+
+    RemoteWebgpu__LoadTextureFromUrl msg = REMOTE_WEBGPU__LOAD_TEXTURE_FROM_URL__INIT;
+    msg.request_id = request->request_id;
+    msg.texture_id = texture->id;
+    msg.url = rw_dup_stringview(url);
+    msg.usage = (uint32_t)usage;
+    msg.label = msg.url; /* the URL is the natural label */
+    SEND(self, LOAD_TEXTURE_FROM_URL, load_texture_from_url, &msg);
+    free(msg.url);
+    return future;
+
+fail:
+    if (callbackInfo.callback) {
+        WGPUStringView message = { "out of memory", 13 };
+        callbackInfo.callback(WGPUStatus_Error, NULL, message,
+                              callbackInfo.userdata1, callbackInfo.userdata2);
+    }
+    return future;
 }
 
 void wgpuTextureDestroy(WGPUTexture texture) { destroy_resource(texture); }

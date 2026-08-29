@@ -28,7 +28,7 @@ CHROMIUM_FLAGS=(--headless=new --no-sandbox --disable-gpu-sandbox
                 --enable-unsafe-webgpu --enable-features=Vulkan
                 --use-angle=vulkan --window-size=400,300)
 
-FEATURE_TESTS=(limits buffers compute render queries async)
+FEATURE_TESTS=(limits buffers compute render queries async image)
 RUN_GOLDEN=1
 if [ "$#" -gt 0 ]; then
     FEATURE_TESTS=("$@")

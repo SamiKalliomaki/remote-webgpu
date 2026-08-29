@@ -33,8 +33,11 @@ browser tab exposing `navigator.gpu`).
    * `MapBuffer` -> `MapBufferData` (buffer readback and write mapping;
      `--screenshot` uses it to read the frame back over the network),
    * `PopErrorScope` -> `ErrorScopeResult`,
-   * `OnSubmittedWorkDone` -> `WorkDone`, and
-   * `GetCompilationInfo` -> `CompilationInfoResult`.
+   * `OnSubmittedWorkDone` -> `WorkDone`,
+   * `GetCompilationInfo` -> `CompilationInfoResult`, and
+   * `LoadTextureFromUrl` -> `TextureLoaded` (the
+     `wgpuRemoteDeviceLoadTextureFromURL()` extension: the client fetches
+     and decodes an image into a texture and reports its dimensions).
    The client also sends `Event` notifications: a built-in canvas-resize
    event and user-defined named events (the example client streams
    `"mousemove"`), plus unsolicited `UncapturedError` / `DeviceLost`
@@ -53,7 +56,11 @@ blend, depth/stencil, pipeline constants and implicit "auto" layouts via
 and `resolveQuerySet`, every copy command, `writeTexture`, indexed and
 indirect draws, viewport/scissor/blend-constant/stencil-reference state,
 debug groups and labels, error scopes and `requestDevice` with required
-features and limits.  The only entry points that abort are the three
+features and limits.  Beyond webgpu.h, `webgpu/remote.h` adds
+`wgpuRemoteDeviceLoadTextureFromURL()`: the server names a URL, the client
+fetches and decodes the image where it runs (its network, its codecs) and
+hands back a ready rgba8unorm texture -- the natural way to get assets to
+the GPU without streaming pixels over the websocket.  The only entry points that abort are the three
 `wgpuExternalTexture*` methods, which cannot exist here (webgpu.h has no
 way to create an external texture); the wgpu-native `SetImmediates`
 extensions warn and do nothing, as the browser has no equivalent.
