@@ -1,0 +1,23 @@
+{
+  "name": "remote-webgpu-client",
+  "version": "0.1.0",
+  "description": "Client library for the remote WebGPU protocol: exposes this machine's GPU (navigator.gpu) to a remote server over a websocket.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "gen": "protoc --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es --es_out=src/gen --es_opt=target=ts -I ../proto remote_webgpu.proto",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.2.0"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^2.2.0",
+    "@webgpu/types": "^0.1.60",
+    "typescript": "^5.6.0"
+  }
+}

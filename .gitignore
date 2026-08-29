@@ -1,0 +1,31 @@
+# --- build output ---
+build/
+dist/
+*.o
+*.a
+*.so
+
+# stray in-tree CMake runs
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# --- node / typescript ---
+node_modules/
+*.tsbuildinfo
+npm-debug.log*
+
+# --- demo output ---
+*.ppm
+
+# --- logs ---
+*.log
+
+# --- version control / editors / OS ---
+.jj/
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store

@@ -1,0 +1,333 @@
+// Wire protocol between the remote WebGPU server (the C application that
+// consumes the webgpu.h API) and the client that owns the actual GPU (a
+// browser talking to navigator.gpu).
+//
+// Transport: a websocket connection.  Every *binary* websocket message
+// carries exactly one serialized `Envelope`; there is no additional length
+// prefix.  Text messages are not used.
+//
+// Handshake: as soon as the connection is up the server sends
+// `ServerHello`; the client answers with `ClientHello` describing the GPU
+// adapter it obtained.
+//
+// After the handshake the server streams commands mirroring the webgpu.h
+// calls made by the application.  Objects are identified by server-assigned
+// uint32 ids; the client keeps an id -> GPU object map.  Most commands have
+// no reply.  The exceptions (so far):
+//   * Present     -> PresentDone   once the frame is on screen (this also
+//                                  paces the server's render loop), and
+//   * MapBufferRead -> MapBufferData with the buffer contents.
+//
+// Enum and bitflag fields hold the *numeric webgpu.h values* (which for
+// bitflags are identical to the JavaScript GPU* constants); the client
+// translates enums to the WebGPU string names.
+
+syntax = "proto3";
+
+package remote_webgpu;
+
+// The protocol version both sides speak.  Bump on incompatible changes.
+enum ProtocolVersion {
+  PROTOCOL_VERSION_UNSPECIFIED = 0;
+  PROTOCOL_VERSION_CURRENT = 3;
+}
+
+message Envelope {
+  oneof kind {
+    ServerHello server_hello = 1;
+    ClientHello client_hello = 2;
+    Error error = 3;
+
+    // server -> client commands
+    CreateShaderModule create_shader_module = 10;
+    CreateBuffer create_buffer = 11;
+    WriteBuffer write_buffer = 12;
+    CreateBindGroupLayout create_bind_group_layout = 13;
+    CreateBindGroup create_bind_group = 14;
+    CreatePipelineLayout create_pipeline_layout = 15;
+    CreateRenderPipeline create_render_pipeline = 16;
+    ConfigureSurface configure_surface = 17;
+    SurfaceGetCurrentTexture surface_get_current_texture = 18;
+    CreateTextureView create_texture_view = 19;
+    CreateCommandEncoder create_command_encoder = 20;
+    BeginRenderPass begin_render_pass = 21;
+    SetPipeline set_pipeline = 22;
+    SetBindGroup set_bind_group = 23;
+    SetVertexBuffer set_vertex_buffer = 24;
+    Draw draw = 25;
+    EndRenderPass end_render_pass = 26;
+    FinishEncoder finish_encoder = 27;
+    Submit submit = 28;
+    Present present = 29;
+    CopyTextureToBuffer copy_texture_to_buffer = 30;
+    MapBufferRead map_buffer_read = 31;
+    DestroyObject destroy_object = 32;
+
+    // client -> server replies
+    PresentDone present_done = 50;
+    MapBufferData map_buffer_data = 51;
+
+    // client -> server notifications
+    CanvasResize canvas_resize = 52;
+  }
+}
+
+// server -> client, first message on the wire.
+message ServerHello {
+  uint32 protocol_version = 1;
+}
+
+// client -> server, response to ServerHello.
+message ClientHello {
+  uint32 protocol_version = 1;
+  // Info about the adapter the client obtained from its local WebGPU
+  // implementation (GPUAdapterInfo in the browser).
+  AdapterInfo adapter = 2;
+  // Initial size of the client's canvas in device pixels (0 = no canvas).
+  // The server sizes its swapchain to this; later changes arrive as
+  // CanvasResize.
+  uint32 canvas_width = 3;
+  uint32 canvas_height = 4;
+}
+
+message AdapterInfo {
+  string vendor = 1;
+  string architecture = 2;
+  string device = 3;
+  string description = 4;
+  bool is_fallback = 5;
+}
+
+// Either side may send this before closing on a fatal error.
+message Error {
+  string message = 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* resource creation                                                   */
+/* ------------------------------------------------------------------ */
+
+message CreateShaderModule {
+  uint32 id = 1;
+  string label = 2;
+  string wgsl = 3;
+}
+
+message CreateBuffer {
+  uint32 id = 1;
+  string label = 2;
+  uint64 size = 3;
+  uint32 usage = 4;  // WGPUBufferUsage bits (same values as GPUBufferUsage)
+}
+
+message WriteBuffer {
+  uint32 buffer_id = 1;
+  uint64 offset = 2;
+  bytes data = 3;
+}
+
+message BindGroupLayoutEntry {
+  uint32 binding = 1;
+  uint32 visibility = 2;          // WGPUShaderStage bits
+  // Only buffer bindings are supported so far.
+  uint32 buffer_binding_type = 3; // WGPUBufferBindingType
+  uint64 min_binding_size = 4;
+}
+
+message CreateBindGroupLayout {
+  uint32 id = 1;
+  string label = 2;
+  repeated BindGroupLayoutEntry entries = 3;
+}
+
+message BindGroupEntry {
+  uint32 binding = 1;
+  uint32 buffer_id = 2;
+  uint64 offset = 3;
+  uint64 size = 4;
+}
+
+message CreateBindGroup {
+  uint32 id = 1;
+  string label = 2;
+  uint32 layout_id = 3;
+  repeated BindGroupEntry entries = 4;
+}
+
+message CreatePipelineLayout {
+  uint32 id = 1;
+  string label = 2;
+  repeated uint32 bind_group_layout_ids = 3;
+}
+
+message VertexAttribute {
+  uint32 format = 1;  // WGPUVertexFormat
+  uint64 offset = 2;
+  uint32 shader_location = 3;
+}
+
+message VertexBufferLayout {
+  uint64 array_stride = 1;
+  uint32 step_mode = 2;  // WGPUVertexStepMode
+  repeated VertexAttribute attributes = 3;
+}
+
+message ColorTargetState {
+  uint32 format = 1;      // WGPUTextureFormat
+  uint32 write_mask = 2;  // WGPUColorWriteMask bits
+}
+
+message CreateRenderPipeline {
+  uint32 id = 1;
+  string label = 2;
+  uint32 layout_id = 3;  // 0 = "auto"
+  uint32 vertex_module_id = 4;
+  string vertex_entry_point = 5;
+  repeated VertexBufferLayout vertex_buffers = 6;
+  uint32 topology = 7;    // WGPUPrimitiveTopology
+  uint32 front_face = 8;  // WGPUFrontFace
+  uint32 cull_mode = 9;   // WGPUCullMode
+  uint32 multisample_count = 10;
+  uint32 fragment_module_id = 11;  // 0 = no fragment stage
+  string fragment_entry_point = 12;
+  repeated ColorTargetState targets = 13;
+}
+
+/* ------------------------------------------------------------------ */
+/* surface / swapchain                                                 */
+/* ------------------------------------------------------------------ */
+
+message ConfigureSurface {
+  uint32 width = 1;
+  uint32 height = 2;
+  uint32 format = 3;  // WGPUTextureFormat
+  uint32 usage = 4;   // WGPUTextureUsage bits
+}
+
+// Client binds its canvas context's current texture to `texture_id`.
+message SurfaceGetCurrentTexture {
+  uint32 texture_id = 1;
+}
+
+message CreateTextureView {
+  uint32 id = 1;
+  uint32 texture_id = 2;
+}
+
+/* ------------------------------------------------------------------ */
+/* command recording and submission                                    */
+/* ------------------------------------------------------------------ */
+
+message CreateCommandEncoder {
+  uint32 id = 1;
+  string label = 2;
+}
+
+message ColorAttachment {
+  uint32 view_id = 1;
+  uint32 load_op = 2;   // WGPULoadOp
+  uint32 store_op = 3;  // WGPUStoreOp
+  double clear_r = 4;
+  double clear_g = 5;
+  double clear_b = 6;
+  double clear_a = 7;
+}
+
+message BeginRenderPass {
+  uint32 id = 1;
+  string label = 2;
+  uint32 encoder_id = 3;
+  repeated ColorAttachment color_attachments = 4;
+}
+
+message SetPipeline {
+  uint32 pass_id = 1;
+  uint32 pipeline_id = 2;
+}
+
+message SetBindGroup {
+  uint32 pass_id = 1;
+  uint32 index = 2;
+  uint32 bind_group_id = 3;
+}
+
+message SetVertexBuffer {
+  uint32 pass_id = 1;
+  uint32 slot = 2;
+  uint32 buffer_id = 3;
+  uint64 offset = 4;
+  uint64 size = 5;
+}
+
+message Draw {
+  uint32 pass_id = 1;
+  uint32 vertex_count = 2;
+  uint32 instance_count = 3;
+  uint32 first_vertex = 4;
+  uint32 first_instance = 5;
+}
+
+message EndRenderPass {
+  uint32 pass_id = 1;
+}
+
+message FinishEncoder {
+  uint32 encoder_id = 1;
+  uint32 command_buffer_id = 2;
+}
+
+message Submit {
+  repeated uint32 command_buffer_ids = 1;
+}
+
+// Show the current frame.  The client answers with PresentDone once the
+// frame has actually been displayed (after requestAnimationFrame), which is
+// what paces the server's render loop.
+message Present {
+}
+
+message PresentDone {
+}
+
+/* ------------------------------------------------------------------ */
+/* readback (screenshots)                                              */
+/* ------------------------------------------------------------------ */
+
+message CopyTextureToBuffer {
+  uint32 encoder_id = 1;
+  uint32 texture_id = 2;
+  uint32 buffer_id = 3;
+  uint32 bytes_per_row = 4;
+  uint32 rows_per_image = 5;
+  uint32 width = 6;
+  uint32 height = 7;
+}
+
+// Client maps the buffer for reading, replies with MapBufferData, unmaps.
+message MapBufferRead {
+  uint32 buffer_id = 1;
+  uint64 offset = 2;
+  uint64 size = 3;
+}
+
+message MapBufferData {
+  uint32 buffer_id = 1;
+  bytes data = 2;
+}
+
+// client -> server: the canvas changed size (device pixels).  The server
+// reacts by reconfiguring the surface, which is what actually resizes the
+// canvas backing store (ConfigureSurface).
+message CanvasResize {
+  uint32 width = 1;
+  uint32 height = 2;
+}
+
+/* ------------------------------------------------------------------ */
+/* lifetime                                                            */
+/* ------------------------------------------------------------------ */
+
+// The server no longer references this object; drop it client-side.
+message DestroyObject {
+  uint32 id = 1;
+}

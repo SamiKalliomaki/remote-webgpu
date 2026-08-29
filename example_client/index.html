@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Remote WebGPU client</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #101216; }
+    #canvas { display: block; width: 100vw; height: 100vh; }
+    #status {
+      position: fixed; left: 12px; bottom: 12px; max-width: calc(100vw - 24px);
+      font: 13px/1.5 monospace; color: #d7dae0; white-space: pre-wrap;
+      background: rgba(0, 0, 0, 0.55); padding: 8px 10px; border-radius: 6px;
+      pointer-events: none;
+    }
+    #fps {
+      position: fixed; right: 12px; top: 12px;
+      font: 14px/1 monospace; color: #8ef58e;
+      background: rgba(0, 0, 0, 0.55); padding: 8px 10px; border-radius: 6px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="status">starting...</div>
+  <div id="fps">-- fps</div>
+  <script type="module" src="dist/main.js"></script>
+</body>
+</html>
