@@ -1,10 +1,12 @@
 # Spinning red triangle (C + remote WebGPU)
 
 A minimal native WebGPU application in C. It links against
-`../remote_webgpu`, our own implementation of the WebGPU headers that will
-forward every call to a remote GPU over a socket (today it is a stub: only
-object lifetime and adapter/device bring-up exist; every real method aborts
-with `remote_webgpu: unimplemented: wgpu...`).
+`../remote_webgpu`, our own implementation of the WebGPU headers, which
+forwards every call to a remote GPU over a socket.
+
+The end-to-end tests that exercise the rest of the API live in `../e2e`
+(see `e2e/run.sh`); they reuse this app's websocket plumbing
+(`connection.c`, `ws_server.c`, `ws_transport.c`, `gpu_setup.c`).
 
 On startup the server listens for a websocket connection; once the remote
 GPU connects, the adapter is created directly from that socket via the

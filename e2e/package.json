@@ -1,0 +1,15 @@
+{
+  "name": "remote-webgpu-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "bundle": "esbuild web/main.ts --bundle --format=esm --outfile=web/dist/main.js"
+  },
+  "dependencies": {
+    "remote-webgpu-client": "file:../client"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.0"
+  }
+}

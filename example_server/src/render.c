@@ -5,17 +5,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include <webgpu/remote.h>
 #include <webgpu/wgpu.h>
 
-static double now_seconds(void)
-{
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
-}
+/* Rotation per frame, in radians.  Advancing by frame count rather than
+ * wall-clock time keeps every frame's content deterministic, which is what
+ * lets the e2e tests compare screenshots against a golden image (the vsync
+ * pacing still ties the visible speed to the client's refresh rate). */
+#define ANGLE_PER_FRAME 0.025f
 
 #define COPY_ALIGN 256u
 
@@ -435,7 +433,6 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
 
     int rc = 0;
     unsigned frames = 0;
-    const double start = now_seconds();
 
     /* Runs until the client disconnects (or opts.max_frames is reached). */
     for (;;) {
@@ -466,7 +463,7 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
         }
 
         const float aspect = (float)ctx->width / (float)ctx->height;
-        const float angle = (float)(now_seconds() - start) * 1.5f;
+        const float angle = (float)frames * ANGLE_PER_FRAME;
 
         Uniforms uniforms;
         memset(&uniforms, 0, sizeof uniforms);

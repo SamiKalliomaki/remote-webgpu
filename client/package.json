@@ -10,7 +10,8 @@
   },
   "scripts": {
     "gen": "protoc --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es --es_out=src/gen --es_opt=target=ts -I ../proto remote_webgpu.proto",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "gen:enums": "python3 tools/generate_enums.py"
   },
   "dependencies": {
     "@bufbuild/protobuf": "^2.2.0"

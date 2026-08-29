@@ -8,19 +8,26 @@
 //
 // Handshake: as soon as the connection is up the server sends
 // `ServerHello`; the client answers with `ClientHello` describing the GPU
-// adapter it obtained.
+// adapter it obtained (info, limits, features).
 //
 // After the handshake the server streams commands mirroring the webgpu.h
 // calls made by the application.  Objects are identified by server-assigned
 // uint32 ids; the client keeps an id -> GPU object map.  Most commands have
-// no reply.  The exceptions (so far):
-//   * Present     -> PresentDone   once the frame is on screen (this also
-//                                  paces the server's render loop), and
-//   * MapBufferRead -> MapBufferData with the buffer contents.
+// no reply.  The exceptions carry a server-assigned `request_id` and are
+// answered asynchronously, in any order:
+//   * Present            -> PresentDone (also paces the render loop),
+//   * MapBuffer          -> MapBufferData with the buffer contents,
+//   * PopErrorScope      -> ErrorScopeResult,
+//   * OnSubmittedWorkDone-> WorkDone,
+//   * GetCompilationInfo -> CompilationInfoResult.
 //
 // Enum and bitflag fields hold the *numeric webgpu.h values* (which for
 // bitflags are identical to the JavaScript GPU* constants); the client
-// translates enums to the WebGPU string names.
+// translates enums to the WebGPU string names.  Sentinel values from
+// webgpu.h (WGPU_WHOLE_SIZE = 2^64-1, WGPU_DEPTH_SLICE_UNDEFINED,
+// WGPU_QUERY_SET_INDEX_UNDEFINED, WGPU_MIP_LEVEL_COUNT_UNDEFINED,
+// WGPU_ARRAY_LAYER_COUNT_UNDEFINED = 2^32-1, enum value 0 = undefined)
+// travel verbatim; the client maps them to `undefined`.
 
 syntax = "proto3";
 
@@ -29,7 +36,7 @@ package remote_webgpu;
 // The protocol version both sides speak.  Bump on incompatible changes.
 enum ProtocolVersion {
   PROTOCOL_VERSION_UNSPECIFIED = 0;
-  PROTOCOL_VERSION_CURRENT = 4;
+  PROTOCOL_VERSION_CURRENT = 5;
 }
 
 message Envelope {
@@ -55,20 +62,68 @@ message Envelope {
     SetBindGroup set_bind_group = 23;
     SetVertexBuffer set_vertex_buffer = 24;
     Draw draw = 25;
-    EndRenderPass end_render_pass = 26;
+    EndPass end_pass = 26;
     FinishEncoder finish_encoder = 27;
     Submit submit = 28;
     Present present = 29;
     CopyTextureToBuffer copy_texture_to_buffer = 30;
-    MapBufferRead map_buffer_read = 31;
+    MapBuffer map_buffer = 31;
     DestroyObject destroy_object = 32;
+    CreateTexture create_texture = 33;
+    CreateSampler create_sampler = 34;
+    CreateQuerySet create_query_set = 35;
+    CreateComputePipeline create_compute_pipeline = 36;
+    BeginComputePass begin_compute_pass = 37;
+    DispatchWorkgroups dispatch_workgroups = 38;
+    DispatchWorkgroupsIndirect dispatch_workgroups_indirect = 39;
+    SetIndexBuffer set_index_buffer = 40;
+    DrawIndexed draw_indexed = 41;
+    DrawIndirect draw_indirect = 42;
+    DrawIndexedIndirect draw_indexed_indirect = 43;
+    SetViewport set_viewport = 44;
+    SetScissorRect set_scissor_rect = 45;
+    SetBlendConstant set_blend_constant = 46;
+    SetStencilReference set_stencil_reference = 47;
+    BeginOcclusionQuery begin_occlusion_query = 48;
+    EndOcclusionQuery end_occlusion_query = 49;
 
-    // client -> server replies
+    // client -> server replies (kept at their historical numbers)
     PresentDone present_done = 50;
     MapBufferData map_buffer_data = 51;
 
     // client -> server notifications
     Event event = 52;
+
+    // server -> client commands (continued)
+    CopyBufferToBuffer copy_buffer_to_buffer = 60;
+    CopyBufferToTexture copy_buffer_to_texture = 61;
+    CopyTextureToTexture copy_texture_to_texture = 62;
+    ClearBuffer clear_buffer = 63;
+    ResolveQuerySet resolve_query_set = 64;
+    WriteTexture write_texture = 65;
+    CreateRenderBundleEncoder create_render_bundle_encoder = 66;
+    FinishRenderBundle finish_render_bundle = 67;
+    ExecuteBundles execute_bundles = 68;
+    DebugMarker debug_marker = 69;
+    UnmapBuffer unmap_buffer = 70;
+    DestroyResource destroy_resource = 71;
+    SetObjectLabel set_object_label = 72;
+    PushErrorScope push_error_scope = 73;
+    PopErrorScope pop_error_scope = 74;
+    OnSubmittedWorkDone on_submitted_work_done = 75;
+    GetCompilationInfo get_compilation_info = 76;
+    PipelineGetBindGroupLayout pipeline_get_bind_group_layout = 77;
+    RequestDevice request_device = 78;
+    DestroyDevice destroy_device = 79;
+    SurfaceUnconfigure surface_unconfigure = 80;
+    WriteTimestamp write_timestamp = 81;
+
+    // client -> server replies and notifications (continued)
+    ErrorScopeResult error_scope_result = 90;
+    WorkDone work_done = 91;
+    CompilationInfoResult compilation_info_result = 92;
+    UncapturedError uncaptured_error = 93;
+    DeviceLost device_lost = 94;
   }
 }
 
@@ -88,6 +143,13 @@ message ClientHello {
   // Event.canvas_resize.
   uint32 canvas_width = 3;
   uint32 canvas_height = 4;
+  // The adapter's supported limits (GPUSupportedLimits).
+  Limits limits = 5;
+  // The adapter's supported features, as WGPUFeatureName values.  Feature
+  // strings the client cannot map to a webgpu.h value are dropped.
+  repeated uint32 features = 6;
+  // Supported WGSL language features, as WGPUWGSLLanguageFeatureName values.
+  repeated uint32 wgsl_features = 7;
 }
 
 message AdapterInfo {
@@ -98,9 +160,96 @@ message AdapterInfo {
   bool is_fallback = 5;
 }
 
+// GPUSupportedLimits; field names mirror WGPULimits.
+message Limits {
+  uint32 max_texture_dimension_1d = 1;
+  uint32 max_texture_dimension_2d = 2;
+  uint32 max_texture_dimension_3d = 3;
+  uint32 max_texture_array_layers = 4;
+  uint32 max_bind_groups = 5;
+  uint32 max_bind_groups_plus_vertex_buffers = 6;
+  uint32 max_bindings_per_bind_group = 7;
+  uint32 max_dynamic_uniform_buffers_per_pipeline_layout = 8;
+  uint32 max_dynamic_storage_buffers_per_pipeline_layout = 9;
+  uint32 max_sampled_textures_per_shader_stage = 10;
+  uint32 max_samplers_per_shader_stage = 11;
+  uint32 max_storage_buffers_per_shader_stage = 12;
+  uint32 max_storage_textures_per_shader_stage = 13;
+  uint32 max_uniform_buffers_per_shader_stage = 14;
+  uint64 max_uniform_buffer_binding_size = 15;
+  uint64 max_storage_buffer_binding_size = 16;
+  uint32 min_uniform_buffer_offset_alignment = 17;
+  uint32 min_storage_buffer_offset_alignment = 18;
+  uint32 max_vertex_buffers = 19;
+  uint64 max_buffer_size = 20;
+  uint32 max_vertex_attributes = 21;
+  uint32 max_vertex_buffer_array_stride = 22;
+  uint32 max_inter_stage_shader_variables = 23;
+  uint32 max_color_attachments = 24;
+  uint32 max_color_attachment_bytes_per_sample = 25;
+  uint32 max_compute_workgroup_storage_size = 26;
+  uint32 max_compute_invocations_per_workgroup = 27;
+  uint32 max_compute_workgroup_size_x = 28;
+  uint32 max_compute_workgroup_size_y = 29;
+  uint32 max_compute_workgroup_size_z = 30;
+  uint32 max_compute_workgroups_per_dimension = 31;
+  uint32 max_immediate_size = 32;
+}
+
 // Either side may send this before closing on a fatal error.
 message Error {
   string message = 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* device                                                              */
+/* ------------------------------------------------------------------ */
+
+// wgpuAdapterRequestDevice.  The client creates the GPUDevice all later
+// commands run on.  When features or limits are required it re-requests
+// its adapter (browsers expire an adapter after one requestDevice); a
+// failure to satisfy them surfaces as an Error message.
+message RequestDevice {
+  string label = 1;
+  repeated uint32 required_features = 2;  // WGPUFeatureName values
+  Limits required_limits = 3;             // absent = default limits
+  string default_queue_label = 4;
+}
+
+// wgpuDeviceDestroy.  The client destroys its device and answers with
+// DeviceLost(reason=destroyed).
+message DestroyDevice {
+}
+
+// client -> server: the device was lost (destroyed or something worse).
+message DeviceLost {
+  uint32 reason = 1;  // WGPUDeviceLostReason
+  string message = 2;
+}
+
+// client -> server: an error escaped every error scope
+// (GPUDevice "uncapturederror" event).
+message UncapturedError {
+  uint32 type = 1;  // WGPUErrorType
+  string message = 2;
+}
+
+/* ------------------------------------------------------------------ */
+/* error scopes                                                        */
+/* ------------------------------------------------------------------ */
+
+message PushErrorScope {
+  uint32 filter = 1;  // WGPUErrorFilter
+}
+
+message PopErrorScope {
+  uint64 request_id = 1;
+}
+
+message ErrorScopeResult {
+  uint64 request_id = 1;
+  uint32 error_type = 2;  // WGPUErrorType; NoError when the scope was clean
+  string message = 3;
 }
 
 /* ------------------------------------------------------------------ */
@@ -113,11 +262,32 @@ message CreateShaderModule {
   string wgsl = 3;
 }
 
+// wgpuShaderModuleGetCompilationInfo.
+message GetCompilationInfo {
+  uint64 request_id = 1;
+  uint32 module_id = 2;
+}
+
+message CompilationMessage {
+  uint32 type = 1;  // WGPUCompilationMessageType
+  string text = 2;
+  uint64 line_num = 3;
+  uint64 line_pos = 4;
+  uint64 offset = 5;
+  uint64 length = 6;
+}
+
+message CompilationInfoResult {
+  uint64 request_id = 1;
+  repeated CompilationMessage messages = 2;
+}
+
 message CreateBuffer {
   uint32 id = 1;
   string label = 2;
   uint64 size = 3;
   uint32 usage = 4;  // WGPUBufferUsage bits (same values as GPUBufferUsage)
+  bool mapped_at_creation = 5;
 }
 
 message WriteBuffer {
@@ -126,12 +296,88 @@ message WriteBuffer {
   bytes data = 3;
 }
 
+message CreateTexture {
+  uint32 id = 1;
+  string label = 2;
+  uint32 usage = 3;      // WGPUTextureUsage bits
+  uint32 dimension = 4;  // WGPUTextureDimension
+  uint32 width = 5;
+  uint32 height = 6;
+  uint32 depth_or_array_layers = 7;
+  uint32 format = 8;     // WGPUTextureFormat
+  uint32 mip_level_count = 9;
+  uint32 sample_count = 10;
+  repeated uint32 view_formats = 11;  // WGPUTextureFormat
+}
+
+message CreateTextureView {
+  uint32 id = 1;
+  uint32 texture_id = 2;
+  string label = 3;
+  uint32 format = 4;     // WGPUTextureFormat; 0 = undefined
+  uint32 dimension = 5;  // WGPUTextureViewDimension; 0 = undefined
+  uint32 base_mip_level = 6;
+  uint32 mip_level_count = 7;    // 2^32-1 = undefined
+  uint32 base_array_layer = 8;
+  uint32 array_layer_count = 9;  // 2^32-1 = undefined
+  uint32 aspect = 10;    // WGPUTextureAspect; 0 = undefined
+  uint32 usage = 11;     // WGPUTextureUsage bits; 0 = inherit
+}
+
+message CreateSampler {
+  uint32 id = 1;
+  string label = 2;
+  uint32 address_mode_u = 3;  // WGPUAddressMode
+  uint32 address_mode_v = 4;
+  uint32 address_mode_w = 5;
+  uint32 mag_filter = 6;      // WGPUFilterMode
+  uint32 min_filter = 7;
+  uint32 mipmap_filter = 8;   // WGPUMipmapFilterMode
+  float lod_min_clamp = 9;
+  float lod_max_clamp = 10;
+  uint32 compare = 11;        // WGPUCompareFunction; 0 = none
+  uint32 max_anisotropy = 12;
+}
+
+message CreateQuerySet {
+  uint32 id = 1;
+  string label = 2;
+  uint32 type = 3;  // WGPUQueryType
+  uint32 count = 4;
+}
+
 message BindGroupLayoutEntry {
   uint32 binding = 1;
-  uint32 visibility = 2;          // WGPUShaderStage bits
-  // Only buffer bindings are supported so far.
-  uint32 buffer_binding_type = 3; // WGPUBufferBindingType
-  uint64 min_binding_size = 4;
+  uint32 visibility = 2;  // WGPUShaderStage bits
+  uint32 binding_array_size = 3;
+  // Exactly one of these is set, mirroring which member of
+  // WGPUBindGroupLayoutEntry is used.
+  BufferBindingLayout buffer = 4;
+  SamplerBindingLayout sampler = 5;
+  TextureBindingLayout texture = 6;
+  StorageTextureBindingLayout storage_texture = 7;
+}
+
+message BufferBindingLayout {
+  uint32 type = 1;  // WGPUBufferBindingType
+  bool has_dynamic_offset = 2;
+  uint64 min_binding_size = 3;
+}
+
+message SamplerBindingLayout {
+  uint32 type = 1;  // WGPUSamplerBindingType
+}
+
+message TextureBindingLayout {
+  uint32 sample_type = 1;     // WGPUTextureSampleType
+  uint32 view_dimension = 2;  // WGPUTextureViewDimension
+  bool multisampled = 3;
+}
+
+message StorageTextureBindingLayout {
+  uint32 access = 1;          // WGPUStorageTextureAccess
+  uint32 format = 2;          // WGPUTextureFormat
+  uint32 view_dimension = 3;  // WGPUTextureViewDimension
 }
 
 message CreateBindGroupLayout {
@@ -142,9 +388,12 @@ message CreateBindGroupLayout {
 
 message BindGroupEntry {
   uint32 binding = 1;
+  // Exactly one resource kind is set.
   uint32 buffer_id = 2;
-  uint64 offset = 3;
-  uint64 size = 4;
+  uint64 offset = 3;   // buffer bindings only
+  uint64 size = 4;     // buffer bindings only; 2^64-1 = whole buffer
+  uint32 sampler_id = 5;
+  uint32 texture_view_id = 6;
 }
 
 message CreateBindGroup {
@@ -160,6 +409,11 @@ message CreatePipelineLayout {
   repeated uint32 bind_group_layout_ids = 3;
 }
 
+message ConstantEntry {
+  string key = 1;
+  double value = 2;
+}
+
 message VertexAttribute {
   uint32 format = 1;  // WGPUVertexFormat
   uint64 offset = 2;
@@ -172,9 +426,41 @@ message VertexBufferLayout {
   repeated VertexAttribute attributes = 3;
 }
 
+message BlendComponent {
+  uint32 operation = 1;   // WGPUBlendOperation
+  uint32 src_factor = 2;  // WGPUBlendFactor
+  uint32 dst_factor = 3;  // WGPUBlendFactor
+}
+
+message BlendState {
+  BlendComponent color = 1;
+  BlendComponent alpha = 2;
+}
+
 message ColorTargetState {
   uint32 format = 1;      // WGPUTextureFormat
   uint32 write_mask = 2;  // WGPUColorWriteMask bits
+  BlendState blend = 3;   // absent = no blending
+}
+
+message StencilFaceState {
+  uint32 compare = 1;        // WGPUCompareFunction
+  uint32 fail_op = 2;        // WGPUStencilOperation
+  uint32 depth_fail_op = 3;  // WGPUStencilOperation
+  uint32 pass_op = 4;        // WGPUStencilOperation
+}
+
+message DepthStencilState {
+  uint32 format = 1;               // WGPUTextureFormat
+  uint32 depth_write_enabled = 2;  // WGPUOptionalBool
+  uint32 depth_compare = 3;        // WGPUCompareFunction; 0 = undefined
+  StencilFaceState stencil_front = 4;
+  StencilFaceState stencil_back = 5;
+  uint32 stencil_read_mask = 6;
+  uint32 stencil_write_mask = 7;
+  int32 depth_bias = 8;
+  float depth_bias_slope_scale = 9;
+  float depth_bias_clamp = 10;
 }
 
 message CreateRenderPipeline {
@@ -191,6 +477,30 @@ message CreateRenderPipeline {
   uint32 fragment_module_id = 11;  // 0 = no fragment stage
   string fragment_entry_point = 12;
   repeated ColorTargetState targets = 13;
+  repeated ConstantEntry vertex_constants = 14;
+  repeated ConstantEntry fragment_constants = 15;
+  uint32 strip_index_format = 16;  // WGPUIndexFormat; 0 = undefined
+  bool unclipped_depth = 17;
+  uint32 multisample_mask = 18;
+  bool alpha_to_coverage_enabled = 19;
+  DepthStencilState depth_stencil = 20;  // absent = no depth/stencil
+}
+
+message CreateComputePipeline {
+  uint32 id = 1;
+  string label = 2;
+  uint32 layout_id = 3;  // 0 = "auto"
+  uint32 module_id = 4;
+  string entry_point = 5;
+  repeated ConstantEntry constants = 6;
+}
+
+// wgpu{Render,Compute}PipelineGetBindGroupLayout: bind `id` to the
+// pipeline's implicit bind group layout at `group_index`.
+message PipelineGetBindGroupLayout {
+  uint32 pipeline_id = 1;
+  uint32 group_index = 2;
+  uint32 id = 3;
 }
 
 /* ------------------------------------------------------------------ */
@@ -202,16 +512,16 @@ message ConfigureSurface {
   uint32 height = 2;
   uint32 format = 3;  // WGPUTextureFormat
   uint32 usage = 4;   // WGPUTextureUsage bits
+  repeated uint32 view_formats = 5;  // WGPUTextureFormat
+  uint32 alpha_mode = 6;  // WGPUCompositeAlphaMode; 0 = auto (opaque)
+}
+
+message SurfaceUnconfigure {
 }
 
 // Client binds its canvas context's current texture to `texture_id`.
 message SurfaceGetCurrentTexture {
   uint32 texture_id = 1;
-}
-
-message CreateTextureView {
-  uint32 id = 1;
-  uint32 texture_id = 2;
 }
 
 /* ------------------------------------------------------------------ */
@@ -231,6 +541,26 @@ message ColorAttachment {
   double clear_g = 5;
   double clear_b = 6;
   double clear_a = 7;
+  uint32 resolve_target_id = 8;  // 0 = none
+  uint32 depth_slice = 9;        // 2^32-1 = undefined
+}
+
+message DepthStencilAttachment {
+  uint32 view_id = 1;
+  uint32 depth_load_op = 2;    // WGPULoadOp; 0 = undefined
+  uint32 depth_store_op = 3;   // WGPUStoreOp; 0 = undefined
+  float depth_clear_value = 4;
+  bool depth_read_only = 5;
+  uint32 stencil_load_op = 6;  // WGPULoadOp; 0 = undefined
+  uint32 stencil_store_op = 7; // WGPUStoreOp; 0 = undefined
+  uint32 stencil_clear_value = 8;
+  bool stencil_read_only = 9;
+}
+
+message PassTimestampWrites {
+  uint32 query_set_id = 1;
+  uint32 beginning_of_pass_write_index = 2;  // 2^32-1 = undefined
+  uint32 end_of_pass_write_index = 3;        // 2^32-1 = undefined
 }
 
 message BeginRenderPass {
@@ -238,7 +568,22 @@ message BeginRenderPass {
   string label = 2;
   uint32 encoder_id = 3;
   repeated ColorAttachment color_attachments = 4;
+  DepthStencilAttachment depth_stencil_attachment = 5;
+  uint32 occlusion_query_set_id = 6;  // 0 = none
+  PassTimestampWrites timestamp_writes = 7;
+  uint64 max_draw_count = 8;  // 0 = default
 }
+
+message BeginComputePass {
+  uint32 id = 1;
+  string label = 2;
+  uint32 encoder_id = 3;
+  PassTimestampWrites timestamp_writes = 4;
+}
+
+// The pass_id of the following commands names a render pass, compute pass
+// or render bundle encoder; the client calls the same-named method on
+// whichever it is.
 
 message SetPipeline {
   uint32 pass_id = 1;
@@ -248,15 +593,24 @@ message SetPipeline {
 message SetBindGroup {
   uint32 pass_id = 1;
   uint32 index = 2;
-  uint32 bind_group_id = 3;
+  uint32 bind_group_id = 3;  // 0 = null (unbind)
+  repeated uint32 dynamic_offsets = 4;
 }
 
 message SetVertexBuffer {
   uint32 pass_id = 1;
   uint32 slot = 2;
-  uint32 buffer_id = 3;
+  uint32 buffer_id = 3;  // 0 = null (unbind)
   uint64 offset = 4;
-  uint64 size = 5;
+  uint64 size = 5;  // 2^64-1 = rest of buffer
+}
+
+message SetIndexBuffer {
+  uint32 pass_id = 1;
+  uint32 buffer_id = 2;
+  uint32 format = 3;  // WGPUIndexFormat
+  uint64 offset = 4;
+  uint64 size = 5;  // 2^64-1 = rest of buffer
 }
 
 message Draw {
@@ -267,17 +621,130 @@ message Draw {
   uint32 first_instance = 5;
 }
 
-message EndRenderPass {
+message DrawIndexed {
   uint32 pass_id = 1;
+  uint32 index_count = 2;
+  uint32 instance_count = 3;
+  uint32 first_index = 4;
+  int32 base_vertex = 5;
+  uint32 first_instance = 6;
+}
+
+message DrawIndirect {
+  uint32 pass_id = 1;
+  uint32 buffer_id = 2;
+  uint64 offset = 3;
+}
+
+message DrawIndexedIndirect {
+  uint32 pass_id = 1;
+  uint32 buffer_id = 2;
+  uint64 offset = 3;
+}
+
+message DispatchWorkgroups {
+  uint32 pass_id = 1;
+  uint32 x = 2;
+  uint32 y = 3;
+  uint32 z = 4;
+}
+
+message DispatchWorkgroupsIndirect {
+  uint32 pass_id = 1;
+  uint32 buffer_id = 2;
+  uint64 offset = 3;
+}
+
+message SetViewport {
+  uint32 pass_id = 1;
+  float x = 2;
+  float y = 3;
+  float width = 4;
+  float height = 5;
+  float min_depth = 6;
+  float max_depth = 7;
+}
+
+message SetScissorRect {
+  uint32 pass_id = 1;
+  uint32 x = 2;
+  uint32 y = 3;
+  uint32 width = 4;
+  uint32 height = 5;
+}
+
+message SetBlendConstant {
+  uint32 pass_id = 1;
+  double r = 2;
+  double g = 3;
+  double b = 4;
+  double a = 5;
+}
+
+message SetStencilReference {
+  uint32 pass_id = 1;
+  uint32 reference = 2;
+}
+
+message BeginOcclusionQuery {
+  uint32 pass_id = 1;
+  uint32 query_index = 2;
+}
+
+message EndOcclusionQuery {
+  uint32 pass_id = 1;
+}
+
+message ExecuteBundles {
+  uint32 pass_id = 1;
+  repeated uint32 bundle_ids = 2;
+}
+
+// Ends a render or compute pass (the client calls pass.end()).
+message EndPass {
+  uint32 pass_id = 1;
+}
+
+// Debug groups and markers on any encoder or pass (`object_id`).
+message DebugMarker {
+  uint32 object_id = 1;
+  uint32 op = 2;  // 1 = pushDebugGroup, 2 = popDebugGroup, 3 = insertDebugMarker
+  string label = 3;
 }
 
 message FinishEncoder {
   uint32 encoder_id = 1;
   uint32 command_buffer_id = 2;
+  string label = 3;
+}
+
+message CreateRenderBundleEncoder {
+  uint32 id = 1;
+  string label = 2;
+  repeated uint32 color_formats = 3;  // WGPUTextureFormat; 0 = null slot
+  uint32 depth_stencil_format = 4;    // 0 = none
+  uint32 sample_count = 5;
+  bool depth_read_only = 6;
+  bool stencil_read_only = 7;
+}
+
+message FinishRenderBundle {
+  uint32 encoder_id = 1;
+  uint32 bundle_id = 2;
+  string label = 3;
 }
 
 message Submit {
   repeated uint32 command_buffer_ids = 1;
+}
+
+// wgpuQueueOnSubmittedWorkDone -> WorkDone.
+message OnSubmittedWorkDone {
+  uint64 request_id = 1;
+}
+
+message WorkDone {
+  uint64 request_id = 1;
 }
 
 // Show the current frame.  The client answers with PresentDone once the
@@ -290,29 +757,130 @@ message PresentDone {
 }
 
 /* ------------------------------------------------------------------ */
-/* readback (screenshots)                                              */
+/* copies                                                              */
 /* ------------------------------------------------------------------ */
+
+message TexelCopyTexture {
+  uint32 texture_id = 1;
+  uint32 mip_level = 2;
+  uint32 origin_x = 3;
+  uint32 origin_y = 4;
+  uint32 origin_z = 5;
+  uint32 aspect = 6;  // WGPUTextureAspect; 0 = all
+}
+
+message TexelCopyBuffer {
+  uint32 buffer_id = 1;
+  uint64 offset = 2;
+  uint32 bytes_per_row = 3;   // 2^32-1 = undefined
+  uint32 rows_per_image = 4;  // 2^32-1 = undefined
+}
+
+message Extent3D {
+  uint32 width = 1;
+  uint32 height = 2;
+  uint32 depth_or_array_layers = 3;
+}
+
+message CopyBufferToBuffer {
+  uint32 encoder_id = 1;
+  uint32 source_id = 2;
+  uint64 source_offset = 3;
+  uint32 destination_id = 4;
+  uint64 destination_offset = 5;
+  uint64 size = 6;
+}
+
+message CopyBufferToTexture {
+  uint32 encoder_id = 1;
+  TexelCopyBuffer source = 2;
+  TexelCopyTexture destination = 3;
+  Extent3D size = 4;
+}
 
 message CopyTextureToBuffer {
   uint32 encoder_id = 1;
-  uint32 texture_id = 2;
-  uint32 buffer_id = 3;
-  uint32 bytes_per_row = 4;
-  uint32 rows_per_image = 5;
-  uint32 width = 6;
-  uint32 height = 7;
+  TexelCopyTexture source = 2;
+  TexelCopyBuffer destination = 3;
+  Extent3D size = 4;
 }
 
-// Client maps the buffer for reading, replies with MapBufferData, unmaps.
-message MapBufferRead {
-  uint32 buffer_id = 1;
-  uint64 offset = 2;
-  uint64 size = 3;
+message CopyTextureToTexture {
+  uint32 encoder_id = 1;
+  TexelCopyTexture source = 2;
+  TexelCopyTexture destination = 3;
+  Extent3D size = 4;
+}
+
+message ClearBuffer {
+  uint32 encoder_id = 1;
+  uint32 buffer_id = 2;
+  uint64 offset = 3;
+  uint64 size = 4;  // 2^64-1 = rest of buffer
+}
+
+// wgpuQueueWriteTexture.
+message WriteTexture {
+  TexelCopyTexture destination = 1;
+  bytes data = 2;
+  uint64 layout_offset = 3;
+  uint32 bytes_per_row = 4;   // 2^32-1 = undefined
+  uint32 rows_per_image = 5;  // 2^32-1 = undefined
+  Extent3D size = 6;
+}
+
+/* ------------------------------------------------------------------ */
+/* queries                                                             */
+/* ------------------------------------------------------------------ */
+
+message ResolveQuerySet {
+  uint32 encoder_id = 1;
+  uint32 query_set_id = 2;
+  uint32 first_query = 3;
+  uint32 query_count = 4;
+  uint32 destination_id = 5;
+  uint64 destination_offset = 6;
+}
+
+// wgpuCommandEncoderWriteTimestamp (not part of the JS API; the client
+// ignores it with a warning if its implementation has no equivalent).
+message WriteTimestamp {
+  uint32 encoder_id = 1;
+  uint32 query_set_id = 2;
+  uint32 query_index = 3;
+}
+
+/* ------------------------------------------------------------------ */
+/* buffer mapping                                                      */
+/* ------------------------------------------------------------------ */
+
+// wgpuBufferMapAsync.  The client maps the buffer and replies with
+// MapBufferData; for read maps the reply carries the contents, for write
+// maps it is empty (the buffer stays mapped client-side until
+// UnmapBuffer).
+message MapBuffer {
+  uint64 request_id = 1;
+  uint32 buffer_id = 2;
+  uint32 mode = 3;  // WGPUMapMode bits
+  uint64 offset = 4;
+  uint64 size = 5;  // 2^64-1 = rest of buffer
 }
 
 message MapBufferData {
+  uint64 request_id = 1;
+  bytes data = 2;      // read maps: the mapped bytes
+  bool failed = 3;
+  string message = 4;  // failure reason when failed
+}
+
+// wgpuBufferUnmap.  For write-mapped buffers (mapAsync(WRITE) or
+// mappedAtCreation) `data` carries the server-side writes to copy into the
+// client's mapped range before unmapping.
+message UnmapBuffer {
   uint32 buffer_id = 1;
-  bytes data = 2;
+  bool write = 2;
+  uint64 offset = 3;
+  bytes data = 4;
 }
 
 /* ------------------------------------------------------------------ */
@@ -352,4 +920,17 @@ message UserEvent {
 // The server no longer references this object; drop it client-side.
 message DestroyObject {
   uint32 id = 1;
+}
+
+// wgpuBufferDestroy / wgpuTextureDestroy / wgpuQuerySetDestroy: eagerly
+// free the GPU resource (the client calls .destroy()) while the handle
+// itself stays alive until DestroyObject.
+message DestroyResource {
+  uint32 id = 1;
+}
+
+// wgpu*SetLabel for any object with an id.
+message SetObjectLabel {
+  uint32 id = 1;
+  string label = 2;
 }

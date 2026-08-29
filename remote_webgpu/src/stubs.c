@@ -2,441 +2,9 @@
 
 #include "remote_webgpu_internal.h"
 
+#include <string.h>
+
 #include <webgpu/webgpu.h>
-
-void wgpuGetInstanceFeatures(WGPUSupportedInstanceFeatures * features)
-{
-    (void)features;
-    remote_wgpu_unimplemented("wgpuGetInstanceFeatures");
-}
-
-WGPUStatus wgpuGetInstanceLimits(WGPUInstanceLimits * limits)
-{
-    (void)limits;
-    remote_wgpu_unimplemented("wgpuGetInstanceLimits");
-}
-
-WGPUBool wgpuHasInstanceFeature(WGPUInstanceFeatureName feature)
-{
-    (void)feature;
-    remote_wgpu_unimplemented("wgpuHasInstanceFeature");
-}
-
-WGPUProc wgpuGetProcAddress(WGPUStringView procName)
-{
-    (void)procName;
-    remote_wgpu_unimplemented("wgpuGetProcAddress");
-}
-
-void wgpuAdapterGetFeatures(WGPUAdapter adapter, WGPUSupportedFeatures * features)
-{
-    (void)adapter;
-    (void)features;
-    remote_wgpu_unimplemented("wgpuAdapterGetFeatures");
-}
-
-WGPUStatus wgpuAdapterGetLimits(WGPUAdapter adapter, WGPULimits * limits)
-{
-    (void)adapter;
-    (void)limits;
-    remote_wgpu_unimplemented("wgpuAdapterGetLimits");
-}
-
-WGPUBool wgpuAdapterHasFeature(WGPUAdapter adapter, WGPUFeatureName feature)
-{
-    (void)adapter;
-    (void)feature;
-    remote_wgpu_unimplemented("wgpuAdapterHasFeature");
-}
-
-void wgpuBindGroupSetLabel(WGPUBindGroup bindGroup, WGPUStringView label)
-{
-    (void)bindGroup;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuBindGroupSetLabel");
-}
-
-void wgpuBindGroupLayoutSetLabel(WGPUBindGroupLayout bindGroupLayout, WGPUStringView label)
-{
-    (void)bindGroupLayout;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuBindGroupLayoutSetLabel");
-}
-
-void * wgpuBufferGetMappedRange(WGPUBuffer buffer, size_t offset, size_t size)
-{
-    (void)buffer;
-    (void)offset;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuBufferGetMappedRange");
-}
-
-WGPUBufferMapState wgpuBufferGetMapState(WGPUBuffer buffer)
-{
-    (void)buffer;
-    remote_wgpu_unimplemented("wgpuBufferGetMapState");
-}
-
-uint64_t wgpuBufferGetSize(WGPUBuffer buffer)
-{
-    (void)buffer;
-    remote_wgpu_unimplemented("wgpuBufferGetSize");
-}
-
-WGPUBufferUsage wgpuBufferGetUsage(WGPUBuffer buffer)
-{
-    (void)buffer;
-    remote_wgpu_unimplemented("wgpuBufferGetUsage");
-}
-
-WGPUStatus wgpuBufferReadMappedRange(WGPUBuffer buffer, size_t offset, void * data, size_t size)
-{
-    (void)buffer;
-    (void)offset;
-    (void)data;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuBufferReadMappedRange");
-}
-
-void wgpuBufferSetLabel(WGPUBuffer buffer, WGPUStringView label)
-{
-    (void)buffer;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuBufferSetLabel");
-}
-
-WGPUStatus wgpuBufferWriteMappedRange(WGPUBuffer buffer, size_t offset, void const * data, size_t size)
-{
-    (void)buffer;
-    (void)offset;
-    (void)data;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuBufferWriteMappedRange");
-}
-
-void wgpuCommandBufferSetLabel(WGPUCommandBuffer commandBuffer, WGPUStringView label)
-{
-    (void)commandBuffer;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuCommandBufferSetLabel");
-}
-
-WGPUComputePassEncoder wgpuCommandEncoderBeginComputePass(WGPUCommandEncoder commandEncoder, WGPU_NULLABLE WGPUComputePassDescriptor const * descriptor)
-{
-    (void)commandEncoder;
-    (void)descriptor;
-    remote_wgpu_unimplemented("wgpuCommandEncoderBeginComputePass");
-}
-
-void wgpuCommandEncoderClearBuffer(WGPUCommandEncoder commandEncoder, WGPUBuffer buffer, uint64_t offset, uint64_t size)
-{
-    (void)commandEncoder;
-    (void)buffer;
-    (void)offset;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuCommandEncoderClearBuffer");
-}
-
-void wgpuCommandEncoderCopyBufferToBuffer(WGPUCommandEncoder commandEncoder, WGPUBuffer source, uint64_t sourceOffset, WGPUBuffer destination, uint64_t destinationOffset, uint64_t size)
-{
-    (void)commandEncoder;
-    (void)source;
-    (void)sourceOffset;
-    (void)destination;
-    (void)destinationOffset;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuCommandEncoderCopyBufferToBuffer");
-}
-
-void wgpuCommandEncoderCopyBufferToTexture(WGPUCommandEncoder commandEncoder, WGPUTexelCopyBufferInfo const * source, WGPUTexelCopyTextureInfo const * destination, WGPUExtent3D const * copySize)
-{
-    (void)commandEncoder;
-    (void)source;
-    (void)destination;
-    (void)copySize;
-    remote_wgpu_unimplemented("wgpuCommandEncoderCopyBufferToTexture");
-}
-
-void wgpuCommandEncoderCopyTextureToTexture(WGPUCommandEncoder commandEncoder, WGPUTexelCopyTextureInfo const * source, WGPUTexelCopyTextureInfo const * destination, WGPUExtent3D const * copySize)
-{
-    (void)commandEncoder;
-    (void)source;
-    (void)destination;
-    (void)copySize;
-    remote_wgpu_unimplemented("wgpuCommandEncoderCopyTextureToTexture");
-}
-
-void wgpuCommandEncoderInsertDebugMarker(WGPUCommandEncoder commandEncoder, WGPUStringView markerLabel)
-{
-    (void)commandEncoder;
-    (void)markerLabel;
-    remote_wgpu_unimplemented("wgpuCommandEncoderInsertDebugMarker");
-}
-
-void wgpuCommandEncoderPopDebugGroup(WGPUCommandEncoder commandEncoder)
-{
-    (void)commandEncoder;
-    remote_wgpu_unimplemented("wgpuCommandEncoderPopDebugGroup");
-}
-
-void wgpuCommandEncoderPushDebugGroup(WGPUCommandEncoder commandEncoder, WGPUStringView groupLabel)
-{
-    (void)commandEncoder;
-    (void)groupLabel;
-    remote_wgpu_unimplemented("wgpuCommandEncoderPushDebugGroup");
-}
-
-void wgpuCommandEncoderResolveQuerySet(WGPUCommandEncoder commandEncoder, WGPUQuerySet querySet, uint32_t firstQuery, uint32_t queryCount, WGPUBuffer destination, uint64_t destinationOffset)
-{
-    (void)commandEncoder;
-    (void)querySet;
-    (void)firstQuery;
-    (void)queryCount;
-    (void)destination;
-    (void)destinationOffset;
-    remote_wgpu_unimplemented("wgpuCommandEncoderResolveQuerySet");
-}
-
-void wgpuCommandEncoderSetLabel(WGPUCommandEncoder commandEncoder, WGPUStringView label)
-{
-    (void)commandEncoder;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuCommandEncoderSetLabel");
-}
-
-void wgpuCommandEncoderWriteTimestamp(WGPUCommandEncoder commandEncoder, WGPUQuerySet querySet, uint32_t queryIndex)
-{
-    (void)commandEncoder;
-    (void)querySet;
-    (void)queryIndex;
-    remote_wgpu_unimplemented("wgpuCommandEncoderWriteTimestamp");
-}
-
-void wgpuComputePassEncoderDispatchWorkgroups(WGPUComputePassEncoder computePassEncoder, uint32_t workgroupCountX, uint32_t workgroupCountY, uint32_t workgroupCountZ)
-{
-    (void)computePassEncoder;
-    (void)workgroupCountX;
-    (void)workgroupCountY;
-    (void)workgroupCountZ;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderDispatchWorkgroups");
-}
-
-void wgpuComputePassEncoderDispatchWorkgroupsIndirect(WGPUComputePassEncoder computePassEncoder, WGPUBuffer indirectBuffer, uint64_t indirectOffset)
-{
-    (void)computePassEncoder;
-    (void)indirectBuffer;
-    (void)indirectOffset;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderDispatchWorkgroupsIndirect");
-}
-
-void wgpuComputePassEncoderEnd(WGPUComputePassEncoder computePassEncoder)
-{
-    (void)computePassEncoder;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderEnd");
-}
-
-void wgpuComputePassEncoderInsertDebugMarker(WGPUComputePassEncoder computePassEncoder, WGPUStringView markerLabel)
-{
-    (void)computePassEncoder;
-    (void)markerLabel;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderInsertDebugMarker");
-}
-
-void wgpuComputePassEncoderPopDebugGroup(WGPUComputePassEncoder computePassEncoder)
-{
-    (void)computePassEncoder;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderPopDebugGroup");
-}
-
-void wgpuComputePassEncoderPushDebugGroup(WGPUComputePassEncoder computePassEncoder, WGPUStringView groupLabel)
-{
-    (void)computePassEncoder;
-    (void)groupLabel;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderPushDebugGroup");
-}
-
-void wgpuComputePassEncoderSetBindGroup(WGPUComputePassEncoder computePassEncoder, uint32_t groupIndex, WGPU_NULLABLE WGPUBindGroup group, size_t dynamicOffsetCount, uint32_t const * dynamicOffsets)
-{
-    (void)computePassEncoder;
-    (void)groupIndex;
-    (void)group;
-    (void)dynamicOffsetCount;
-    (void)dynamicOffsets;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderSetBindGroup");
-}
-
-void wgpuComputePassEncoderSetImmediates(WGPUComputePassEncoder computePassEncoder, uint32_t offset, void const * data, size_t size)
-{
-    (void)computePassEncoder;
-    (void)offset;
-    (void)data;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderSetImmediates");
-}
-
-void wgpuComputePassEncoderSetLabel(WGPUComputePassEncoder computePassEncoder, WGPUStringView label)
-{
-    (void)computePassEncoder;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderSetLabel");
-}
-
-void wgpuComputePassEncoderSetPipeline(WGPUComputePassEncoder computePassEncoder, WGPUComputePipeline pipeline)
-{
-    (void)computePassEncoder;
-    (void)pipeline;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderSetPipeline");
-}
-
-void wgpuComputePassEncoderAddRef(WGPUComputePassEncoder computePassEncoder)
-{
-    (void)computePassEncoder;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderAddRef");
-}
-
-void wgpuComputePassEncoderRelease(WGPUComputePassEncoder computePassEncoder)
-{
-    (void)computePassEncoder;
-    remote_wgpu_unimplemented("wgpuComputePassEncoderRelease");
-}
-
-WGPUBindGroupLayout wgpuComputePipelineGetBindGroupLayout(WGPUComputePipeline computePipeline, uint32_t groupIndex)
-{
-    (void)computePipeline;
-    (void)groupIndex;
-    remote_wgpu_unimplemented("wgpuComputePipelineGetBindGroupLayout");
-}
-
-void wgpuComputePipelineSetLabel(WGPUComputePipeline computePipeline, WGPUStringView label)
-{
-    (void)computePipeline;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuComputePipelineSetLabel");
-}
-
-void wgpuComputePipelineAddRef(WGPUComputePipeline computePipeline)
-{
-    (void)computePipeline;
-    remote_wgpu_unimplemented("wgpuComputePipelineAddRef");
-}
-
-void wgpuComputePipelineRelease(WGPUComputePipeline computePipeline)
-{
-    (void)computePipeline;
-    remote_wgpu_unimplemented("wgpuComputePipelineRelease");
-}
-
-WGPUComputePipeline wgpuDeviceCreateComputePipeline(WGPUDevice device, WGPUComputePipelineDescriptor const * descriptor)
-{
-    (void)device;
-    (void)descriptor;
-    remote_wgpu_unimplemented("wgpuDeviceCreateComputePipeline");
-}
-
-WGPUFuture wgpuDeviceCreateComputePipelineAsync(WGPUDevice device, WGPUComputePipelineDescriptor const * descriptor, WGPUCreateComputePipelineAsyncCallbackInfo callbackInfo)
-{
-    (void)device;
-    (void)descriptor;
-    (void)callbackInfo;
-    remote_wgpu_unimplemented("wgpuDeviceCreateComputePipelineAsync");
-}
-
-WGPUQuerySet wgpuDeviceCreateQuerySet(WGPUDevice device, WGPUQuerySetDescriptor const * descriptor)
-{
-    (void)device;
-    (void)descriptor;
-    remote_wgpu_unimplemented("wgpuDeviceCreateQuerySet");
-}
-
-WGPURenderBundleEncoder wgpuDeviceCreateRenderBundleEncoder(WGPUDevice device, WGPURenderBundleEncoderDescriptor const * descriptor)
-{
-    (void)device;
-    (void)descriptor;
-    remote_wgpu_unimplemented("wgpuDeviceCreateRenderBundleEncoder");
-}
-
-WGPUFuture wgpuDeviceCreateRenderPipelineAsync(WGPUDevice device, WGPURenderPipelineDescriptor const * descriptor, WGPUCreateRenderPipelineAsyncCallbackInfo callbackInfo)
-{
-    (void)device;
-    (void)descriptor;
-    (void)callbackInfo;
-    remote_wgpu_unimplemented("wgpuDeviceCreateRenderPipelineAsync");
-}
-
-WGPUSampler wgpuDeviceCreateSampler(WGPUDevice device, WGPU_NULLABLE WGPUSamplerDescriptor const * descriptor)
-{
-    (void)device;
-    (void)descriptor;
-    remote_wgpu_unimplemented("wgpuDeviceCreateSampler");
-}
-
-WGPUTexture wgpuDeviceCreateTexture(WGPUDevice device, WGPUTextureDescriptor const * descriptor)
-{
-    (void)device;
-    (void)descriptor;
-    remote_wgpu_unimplemented("wgpuDeviceCreateTexture");
-}
-
-void wgpuDeviceDestroy(WGPUDevice device)
-{
-    (void)device;
-    remote_wgpu_unimplemented("wgpuDeviceDestroy");
-}
-
-WGPUStatus wgpuDeviceGetAdapterInfo(WGPUDevice device, WGPUAdapterInfo * adapterInfo)
-{
-    (void)device;
-    (void)adapterInfo;
-    remote_wgpu_unimplemented("wgpuDeviceGetAdapterInfo");
-}
-
-void wgpuDeviceGetFeatures(WGPUDevice device, WGPUSupportedFeatures * features)
-{
-    (void)device;
-    (void)features;
-    remote_wgpu_unimplemented("wgpuDeviceGetFeatures");
-}
-
-WGPUStatus wgpuDeviceGetLimits(WGPUDevice device, WGPULimits * limits)
-{
-    (void)device;
-    (void)limits;
-    remote_wgpu_unimplemented("wgpuDeviceGetLimits");
-}
-
-WGPUFuture wgpuDeviceGetLostFuture(WGPUDevice device)
-{
-    (void)device;
-    remote_wgpu_unimplemented("wgpuDeviceGetLostFuture");
-}
-
-WGPUBool wgpuDeviceHasFeature(WGPUDevice device, WGPUFeatureName feature)
-{
-    (void)device;
-    (void)feature;
-    remote_wgpu_unimplemented("wgpuDeviceHasFeature");
-}
-
-WGPUFuture wgpuDevicePopErrorScope(WGPUDevice device, WGPUPopErrorScopeCallbackInfo callbackInfo)
-{
-    (void)device;
-    (void)callbackInfo;
-    remote_wgpu_unimplemented("wgpuDevicePopErrorScope");
-}
-
-void wgpuDevicePushErrorScope(WGPUDevice device, WGPUErrorFilter filter)
-{
-    (void)device;
-    (void)filter;
-    remote_wgpu_unimplemented("wgpuDevicePushErrorScope");
-}
-
-void wgpuDeviceSetLabel(WGPUDevice device, WGPUStringView label)
-{
-    (void)device;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuDeviceSetLabel");
-}
 
 void wgpuExternalTextureSetLabel(WGPUExternalTexture externalTexture, WGPUStringView label)
 {
@@ -457,520 +25,225 @@ void wgpuExternalTextureRelease(WGPUExternalTexture externalTexture)
     remote_wgpu_unimplemented("wgpuExternalTextureRelease");
 }
 
-void wgpuInstanceGetWGSLLanguageFeatures(WGPUInstance instance, WGPUSupportedWGSLLanguageFeatures * features)
-{
-    (void)instance;
-    (void)features;
-    remote_wgpu_unimplemented("wgpuInstanceGetWGSLLanguageFeatures");
-}
-
-WGPUBool wgpuInstanceHasWGSLLanguageFeature(WGPUInstance instance, WGPUWGSLLanguageFeatureName feature)
-{
-    (void)instance;
-    (void)feature;
-    remote_wgpu_unimplemented("wgpuInstanceHasWGSLLanguageFeature");
-}
-
-WGPUFuture wgpuInstanceRequestAdapter(WGPUInstance instance, WGPU_NULLABLE WGPURequestAdapterOptions const * options, WGPURequestAdapterCallbackInfo callbackInfo)
-{
-    (void)instance;
-    (void)options;
-    (void)callbackInfo;
-    remote_wgpu_unimplemented("wgpuInstanceRequestAdapter");
-}
-
-WGPUWaitStatus wgpuInstanceWaitAny(WGPUInstance instance, size_t futureCount, WGPU_NULLABLE WGPUFutureWaitInfo * futures, uint64_t timeoutNS)
-{
-    (void)instance;
-    (void)futureCount;
-    (void)futures;
-    (void)timeoutNS;
-    remote_wgpu_unimplemented("wgpuInstanceWaitAny");
-}
-
-void wgpuPipelineLayoutSetLabel(WGPUPipelineLayout pipelineLayout, WGPUStringView label)
-{
-    (void)pipelineLayout;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuPipelineLayoutSetLabel");
-}
-
-void wgpuQuerySetDestroy(WGPUQuerySet querySet)
-{
-    (void)querySet;
-    remote_wgpu_unimplemented("wgpuQuerySetDestroy");
-}
-
-uint32_t wgpuQuerySetGetCount(WGPUQuerySet querySet)
-{
-    (void)querySet;
-    remote_wgpu_unimplemented("wgpuQuerySetGetCount");
-}
-
-WGPUQueryType wgpuQuerySetGetType(WGPUQuerySet querySet)
-{
-    (void)querySet;
-    remote_wgpu_unimplemented("wgpuQuerySetGetType");
-}
-
-void wgpuQuerySetSetLabel(WGPUQuerySet querySet, WGPUStringView label)
-{
-    (void)querySet;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuQuerySetSetLabel");
-}
-
-void wgpuQuerySetAddRef(WGPUQuerySet querySet)
-{
-    (void)querySet;
-    remote_wgpu_unimplemented("wgpuQuerySetAddRef");
-}
-
-void wgpuQuerySetRelease(WGPUQuerySet querySet)
-{
-    (void)querySet;
-    remote_wgpu_unimplemented("wgpuQuerySetRelease");
-}
-
-WGPUFuture wgpuQueueOnSubmittedWorkDone(WGPUQueue queue, WGPUQueueWorkDoneCallbackInfo callbackInfo)
-{
-    (void)queue;
-    (void)callbackInfo;
-    remote_wgpu_unimplemented("wgpuQueueOnSubmittedWorkDone");
-}
-
-void wgpuQueueSetLabel(WGPUQueue queue, WGPUStringView label)
-{
-    (void)queue;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuQueueSetLabel");
-}
-
-void wgpuQueueWriteTexture(WGPUQueue queue, WGPUTexelCopyTextureInfo const * destination, void const * data, size_t dataSize, WGPUTexelCopyBufferLayout const * dataLayout, WGPUExtent3D const * writeSize)
-{
-    (void)queue;
-    (void)destination;
-    (void)data;
-    (void)dataSize;
-    (void)dataLayout;
-    (void)writeSize;
-    remote_wgpu_unimplemented("wgpuQueueWriteTexture");
-}
-
-void wgpuRenderBundleSetLabel(WGPURenderBundle renderBundle, WGPUStringView label)
-{
-    (void)renderBundle;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuRenderBundleSetLabel");
-}
-
-void wgpuRenderBundleAddRef(WGPURenderBundle renderBundle)
-{
-    (void)renderBundle;
-    remote_wgpu_unimplemented("wgpuRenderBundleAddRef");
-}
-
-void wgpuRenderBundleRelease(WGPURenderBundle renderBundle)
-{
-    (void)renderBundle;
-    remote_wgpu_unimplemented("wgpuRenderBundleRelease");
-}
-
-void wgpuRenderBundleEncoderDraw(WGPURenderBundleEncoder renderBundleEncoder, uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex, uint32_t firstInstance)
-{
-    (void)renderBundleEncoder;
-    (void)vertexCount;
-    (void)instanceCount;
-    (void)firstVertex;
-    (void)firstInstance;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderDraw");
-}
-
-void wgpuRenderBundleEncoderDrawIndexed(WGPURenderBundleEncoder renderBundleEncoder, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex, uint32_t firstInstance)
-{
-    (void)renderBundleEncoder;
-    (void)indexCount;
-    (void)instanceCount;
-    (void)firstIndex;
-    (void)baseVertex;
-    (void)firstInstance;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderDrawIndexed");
-}
-
-void wgpuRenderBundleEncoderDrawIndexedIndirect(WGPURenderBundleEncoder renderBundleEncoder, WGPUBuffer indirectBuffer, uint64_t indirectOffset)
-{
-    (void)renderBundleEncoder;
-    (void)indirectBuffer;
-    (void)indirectOffset;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderDrawIndexedIndirect");
-}
-
-void wgpuRenderBundleEncoderDrawIndirect(WGPURenderBundleEncoder renderBundleEncoder, WGPUBuffer indirectBuffer, uint64_t indirectOffset)
-{
-    (void)renderBundleEncoder;
-    (void)indirectBuffer;
-    (void)indirectOffset;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderDrawIndirect");
-}
-
-WGPURenderBundle wgpuRenderBundleEncoderFinish(WGPURenderBundleEncoder renderBundleEncoder, WGPU_NULLABLE WGPURenderBundleDescriptor const * descriptor)
-{
-    (void)renderBundleEncoder;
-    (void)descriptor;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderFinish");
-}
-
-void wgpuRenderBundleEncoderInsertDebugMarker(WGPURenderBundleEncoder renderBundleEncoder, WGPUStringView markerLabel)
-{
-    (void)renderBundleEncoder;
-    (void)markerLabel;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderInsertDebugMarker");
-}
-
-void wgpuRenderBundleEncoderPopDebugGroup(WGPURenderBundleEncoder renderBundleEncoder)
-{
-    (void)renderBundleEncoder;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderPopDebugGroup");
-}
-
-void wgpuRenderBundleEncoderPushDebugGroup(WGPURenderBundleEncoder renderBundleEncoder, WGPUStringView groupLabel)
-{
-    (void)renderBundleEncoder;
-    (void)groupLabel;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderPushDebugGroup");
-}
-
-void wgpuRenderBundleEncoderSetBindGroup(WGPURenderBundleEncoder renderBundleEncoder, uint32_t groupIndex, WGPU_NULLABLE WGPUBindGroup group, size_t dynamicOffsetCount, uint32_t const * dynamicOffsets)
-{
-    (void)renderBundleEncoder;
-    (void)groupIndex;
-    (void)group;
-    (void)dynamicOffsetCount;
-    (void)dynamicOffsets;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderSetBindGroup");
-}
-
-void wgpuRenderBundleEncoderSetImmediates(WGPURenderBundleEncoder renderBundleEncoder, uint32_t offset, void const * data, size_t size)
-{
-    (void)renderBundleEncoder;
-    (void)offset;
-    (void)data;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderSetImmediates");
-}
-
-void wgpuRenderBundleEncoderSetIndexBuffer(WGPURenderBundleEncoder renderBundleEncoder, WGPUBuffer buffer, WGPUIndexFormat format, uint64_t offset, uint64_t size)
-{
-    (void)renderBundleEncoder;
-    (void)buffer;
-    (void)format;
-    (void)offset;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderSetIndexBuffer");
-}
-
-void wgpuRenderBundleEncoderSetLabel(WGPURenderBundleEncoder renderBundleEncoder, WGPUStringView label)
-{
-    (void)renderBundleEncoder;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderSetLabel");
-}
-
-void wgpuRenderBundleEncoderSetPipeline(WGPURenderBundleEncoder renderBundleEncoder, WGPURenderPipeline pipeline)
-{
-    (void)renderBundleEncoder;
-    (void)pipeline;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderSetPipeline");
-}
-
-void wgpuRenderBundleEncoderSetVertexBuffer(WGPURenderBundleEncoder renderBundleEncoder, uint32_t slot, WGPU_NULLABLE WGPUBuffer buffer, uint64_t offset, uint64_t size)
-{
-    (void)renderBundleEncoder;
-    (void)slot;
-    (void)buffer;
-    (void)offset;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderSetVertexBuffer");
-}
-
-void wgpuRenderBundleEncoderAddRef(WGPURenderBundleEncoder renderBundleEncoder)
-{
-    (void)renderBundleEncoder;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderAddRef");
-}
-
-void wgpuRenderBundleEncoderRelease(WGPURenderBundleEncoder renderBundleEncoder)
-{
-    (void)renderBundleEncoder;
-    remote_wgpu_unimplemented("wgpuRenderBundleEncoderRelease");
-}
-
-void wgpuRenderPassEncoderBeginOcclusionQuery(WGPURenderPassEncoder renderPassEncoder, uint32_t queryIndex)
-{
-    (void)renderPassEncoder;
-    (void)queryIndex;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderBeginOcclusionQuery");
-}
-
-void wgpuRenderPassEncoderDrawIndexed(WGPURenderPassEncoder renderPassEncoder, uint32_t indexCount, uint32_t instanceCount, uint32_t firstIndex, int32_t baseVertex, uint32_t firstInstance)
-{
-    (void)renderPassEncoder;
-    (void)indexCount;
-    (void)instanceCount;
-    (void)firstIndex;
-    (void)baseVertex;
-    (void)firstInstance;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderDrawIndexed");
-}
-
-void wgpuRenderPassEncoderDrawIndexedIndirect(WGPURenderPassEncoder renderPassEncoder, WGPUBuffer indirectBuffer, uint64_t indirectOffset)
-{
-    (void)renderPassEncoder;
-    (void)indirectBuffer;
-    (void)indirectOffset;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderDrawIndexedIndirect");
-}
-
-void wgpuRenderPassEncoderDrawIndirect(WGPURenderPassEncoder renderPassEncoder, WGPUBuffer indirectBuffer, uint64_t indirectOffset)
-{
-    (void)renderPassEncoder;
-    (void)indirectBuffer;
-    (void)indirectOffset;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderDrawIndirect");
-}
-
-void wgpuRenderPassEncoderEndOcclusionQuery(WGPURenderPassEncoder renderPassEncoder)
-{
-    (void)renderPassEncoder;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderEndOcclusionQuery");
-}
-
-void wgpuRenderPassEncoderExecuteBundles(WGPURenderPassEncoder renderPassEncoder, size_t bundleCount, WGPURenderBundle const * bundles)
-{
-    (void)renderPassEncoder;
-    (void)bundleCount;
-    (void)bundles;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderExecuteBundles");
-}
-
-void wgpuRenderPassEncoderInsertDebugMarker(WGPURenderPassEncoder renderPassEncoder, WGPUStringView markerLabel)
-{
-    (void)renderPassEncoder;
-    (void)markerLabel;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderInsertDebugMarker");
-}
-
-void wgpuRenderPassEncoderPopDebugGroup(WGPURenderPassEncoder renderPassEncoder)
-{
-    (void)renderPassEncoder;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderPopDebugGroup");
-}
-
-void wgpuRenderPassEncoderPushDebugGroup(WGPURenderPassEncoder renderPassEncoder, WGPUStringView groupLabel)
-{
-    (void)renderPassEncoder;
-    (void)groupLabel;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderPushDebugGroup");
-}
-
-void wgpuRenderPassEncoderSetBlendConstant(WGPURenderPassEncoder renderPassEncoder, WGPUColor const * color)
-{
-    (void)renderPassEncoder;
-    (void)color;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderSetBlendConstant");
-}
-
-void wgpuRenderPassEncoderSetImmediates(WGPURenderPassEncoder renderPassEncoder, uint32_t offset, void const * data, size_t size)
-{
-    (void)renderPassEncoder;
-    (void)offset;
-    (void)data;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderSetImmediates");
-}
-
-void wgpuRenderPassEncoderSetIndexBuffer(WGPURenderPassEncoder renderPassEncoder, WGPUBuffer buffer, WGPUIndexFormat format, uint64_t offset, uint64_t size)
-{
-    (void)renderPassEncoder;
-    (void)buffer;
-    (void)format;
-    (void)offset;
-    (void)size;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderSetIndexBuffer");
-}
-
-void wgpuRenderPassEncoderSetLabel(WGPURenderPassEncoder renderPassEncoder, WGPUStringView label)
-{
-    (void)renderPassEncoder;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderSetLabel");
-}
-
-void wgpuRenderPassEncoderSetScissorRect(WGPURenderPassEncoder renderPassEncoder, uint32_t x, uint32_t y, uint32_t width, uint32_t height)
-{
-    (void)renderPassEncoder;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderSetScissorRect");
-}
-
-void wgpuRenderPassEncoderSetStencilReference(WGPURenderPassEncoder renderPassEncoder, uint32_t reference)
-{
-    (void)renderPassEncoder;
-    (void)reference;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderSetStencilReference");
-}
-
-void wgpuRenderPassEncoderSetViewport(WGPURenderPassEncoder renderPassEncoder, float x, float y, float width, float height, float minDepth, float maxDepth)
-{
-    (void)renderPassEncoder;
-    (void)x;
-    (void)y;
-    (void)width;
-    (void)height;
-    (void)minDepth;
-    (void)maxDepth;
-    remote_wgpu_unimplemented("wgpuRenderPassEncoderSetViewport");
-}
-
-WGPUBindGroupLayout wgpuRenderPipelineGetBindGroupLayout(WGPURenderPipeline renderPipeline, uint32_t groupIndex)
-{
-    (void)renderPipeline;
-    (void)groupIndex;
-    remote_wgpu_unimplemented("wgpuRenderPipelineGetBindGroupLayout");
-}
-
-void wgpuRenderPipelineSetLabel(WGPURenderPipeline renderPipeline, WGPUStringView label)
-{
-    (void)renderPipeline;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuRenderPipelineSetLabel");
-}
-
-void wgpuSamplerSetLabel(WGPUSampler sampler, WGPUStringView label)
-{
-    (void)sampler;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuSamplerSetLabel");
-}
-
-void wgpuSamplerAddRef(WGPUSampler sampler)
-{
-    (void)sampler;
-    remote_wgpu_unimplemented("wgpuSamplerAddRef");
-}
-
-void wgpuSamplerRelease(WGPUSampler sampler)
-{
-    (void)sampler;
-    remote_wgpu_unimplemented("wgpuSamplerRelease");
-}
-
-WGPUFuture wgpuShaderModuleGetCompilationInfo(WGPUShaderModule shaderModule, WGPUCompilationInfoCallbackInfo callbackInfo)
-{
-    (void)shaderModule;
-    (void)callbackInfo;
-    remote_wgpu_unimplemented("wgpuShaderModuleGetCompilationInfo");
-}
-
-void wgpuShaderModuleSetLabel(WGPUShaderModule shaderModule, WGPUStringView label)
-{
-    (void)shaderModule;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuShaderModuleSetLabel");
-}
-
-void wgpuSupportedFeaturesFreeMembers(WGPUSupportedFeatures supportedFeatures)
-{
-    (void)supportedFeatures;
-    remote_wgpu_unimplemented("wgpuSupportedFeaturesFreeMembers");
-}
-
-void wgpuSupportedInstanceFeaturesFreeMembers(WGPUSupportedInstanceFeatures supportedInstanceFeatures)
-{
-    (void)supportedInstanceFeatures;
-    remote_wgpu_unimplemented("wgpuSupportedInstanceFeaturesFreeMembers");
-}
-
-void wgpuSupportedWGSLLanguageFeaturesFreeMembers(WGPUSupportedWGSLLanguageFeatures supportedWGSLLanguageFeatures)
-{
-    (void)supportedWGSLLanguageFeatures;
-    remote_wgpu_unimplemented("wgpuSupportedWGSLLanguageFeaturesFreeMembers");
-}
-
-void wgpuSurfaceSetLabel(WGPUSurface surface, WGPUStringView label)
-{
-    (void)surface;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuSurfaceSetLabel");
-}
-
-void wgpuSurfaceUnconfigure(WGPUSurface surface)
-{
-    (void)surface;
-    remote_wgpu_unimplemented("wgpuSurfaceUnconfigure");
-}
-
-void wgpuTextureDestroy(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureDestroy");
-}
-
-uint32_t wgpuTextureGetDepthOrArrayLayers(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureGetDepthOrArrayLayers");
-}
-
-WGPUTextureDimension wgpuTextureGetDimension(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureGetDimension");
-}
-
-WGPUTextureFormat wgpuTextureGetFormat(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureGetFormat");
-}
-
-uint32_t wgpuTextureGetMipLevelCount(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureGetMipLevelCount");
-}
-
-uint32_t wgpuTextureGetSampleCount(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureGetSampleCount");
-}
-
-WGPUTextureViewDimension wgpuTextureGetTextureBindingViewDimension(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureGetTextureBindingViewDimension");
-}
-
-WGPUTextureUsage wgpuTextureGetUsage(WGPUTexture texture)
-{
-    (void)texture;
-    remote_wgpu_unimplemented("wgpuTextureGetUsage");
-}
-
-void wgpuTextureSetLabel(WGPUTexture texture, WGPUStringView label)
-{
-    (void)texture;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuTextureSetLabel");
-}
-
-void wgpuTextureViewSetLabel(WGPUTextureView textureView, WGPUStringView label)
-{
-    (void)textureView;
-    (void)label;
-    remote_wgpu_unimplemented("wgpuTextureViewSetLabel");
+/* Every declared function, implemented or stub. */
+typedef struct RwProcEntry {
+    const char *name;
+    WGPUProc proc;
+} RwProcEntry;
+
+static const RwProcEntry rw_procs[] = {
+    { "wgpuAdapterAddRef", (WGPUProc)wgpuAdapterAddRef },
+    { "wgpuAdapterGetFeatures", (WGPUProc)wgpuAdapterGetFeatures },
+    { "wgpuAdapterGetInfo", (WGPUProc)wgpuAdapterGetInfo },
+    { "wgpuAdapterGetLimits", (WGPUProc)wgpuAdapterGetLimits },
+    { "wgpuAdapterHasFeature", (WGPUProc)wgpuAdapterHasFeature },
+    { "wgpuAdapterInfoFreeMembers", (WGPUProc)wgpuAdapterInfoFreeMembers },
+    { "wgpuAdapterRelease", (WGPUProc)wgpuAdapterRelease },
+    { "wgpuAdapterRequestDevice", (WGPUProc)wgpuAdapterRequestDevice },
+    { "wgpuBindGroupAddRef", (WGPUProc)wgpuBindGroupAddRef },
+    { "wgpuBindGroupLayoutAddRef", (WGPUProc)wgpuBindGroupLayoutAddRef },
+    { "wgpuBindGroupLayoutRelease", (WGPUProc)wgpuBindGroupLayoutRelease },
+    { "wgpuBindGroupLayoutSetLabel", (WGPUProc)wgpuBindGroupLayoutSetLabel },
+    { "wgpuBindGroupRelease", (WGPUProc)wgpuBindGroupRelease },
+    { "wgpuBindGroupSetLabel", (WGPUProc)wgpuBindGroupSetLabel },
+    { "wgpuBufferAddRef", (WGPUProc)wgpuBufferAddRef },
+    { "wgpuBufferDestroy", (WGPUProc)wgpuBufferDestroy },
+    { "wgpuBufferGetConstMappedRange", (WGPUProc)wgpuBufferGetConstMappedRange },
+    { "wgpuBufferGetMapState", (WGPUProc)wgpuBufferGetMapState },
+    { "wgpuBufferGetMappedRange", (WGPUProc)wgpuBufferGetMappedRange },
+    { "wgpuBufferGetSize", (WGPUProc)wgpuBufferGetSize },
+    { "wgpuBufferGetUsage", (WGPUProc)wgpuBufferGetUsage },
+    { "wgpuBufferMapAsync", (WGPUProc)wgpuBufferMapAsync },
+    { "wgpuBufferReadMappedRange", (WGPUProc)wgpuBufferReadMappedRange },
+    { "wgpuBufferRelease", (WGPUProc)wgpuBufferRelease },
+    { "wgpuBufferSetLabel", (WGPUProc)wgpuBufferSetLabel },
+    { "wgpuBufferUnmap", (WGPUProc)wgpuBufferUnmap },
+    { "wgpuBufferWriteMappedRange", (WGPUProc)wgpuBufferWriteMappedRange },
+    { "wgpuCommandBufferAddRef", (WGPUProc)wgpuCommandBufferAddRef },
+    { "wgpuCommandBufferRelease", (WGPUProc)wgpuCommandBufferRelease },
+    { "wgpuCommandBufferSetLabel", (WGPUProc)wgpuCommandBufferSetLabel },
+    { "wgpuCommandEncoderAddRef", (WGPUProc)wgpuCommandEncoderAddRef },
+    { "wgpuCommandEncoderBeginComputePass", (WGPUProc)wgpuCommandEncoderBeginComputePass },
+    { "wgpuCommandEncoderBeginRenderPass", (WGPUProc)wgpuCommandEncoderBeginRenderPass },
+    { "wgpuCommandEncoderClearBuffer", (WGPUProc)wgpuCommandEncoderClearBuffer },
+    { "wgpuCommandEncoderCopyBufferToBuffer", (WGPUProc)wgpuCommandEncoderCopyBufferToBuffer },
+    { "wgpuCommandEncoderCopyBufferToTexture", (WGPUProc)wgpuCommandEncoderCopyBufferToTexture },
+    { "wgpuCommandEncoderCopyTextureToBuffer", (WGPUProc)wgpuCommandEncoderCopyTextureToBuffer },
+    { "wgpuCommandEncoderCopyTextureToTexture", (WGPUProc)wgpuCommandEncoderCopyTextureToTexture },
+    { "wgpuCommandEncoderFinish", (WGPUProc)wgpuCommandEncoderFinish },
+    { "wgpuCommandEncoderInsertDebugMarker", (WGPUProc)wgpuCommandEncoderInsertDebugMarker },
+    { "wgpuCommandEncoderPopDebugGroup", (WGPUProc)wgpuCommandEncoderPopDebugGroup },
+    { "wgpuCommandEncoderPushDebugGroup", (WGPUProc)wgpuCommandEncoderPushDebugGroup },
+    { "wgpuCommandEncoderRelease", (WGPUProc)wgpuCommandEncoderRelease },
+    { "wgpuCommandEncoderResolveQuerySet", (WGPUProc)wgpuCommandEncoderResolveQuerySet },
+    { "wgpuCommandEncoderSetLabel", (WGPUProc)wgpuCommandEncoderSetLabel },
+    { "wgpuCommandEncoderWriteTimestamp", (WGPUProc)wgpuCommandEncoderWriteTimestamp },
+    { "wgpuComputePassEncoderAddRef", (WGPUProc)wgpuComputePassEncoderAddRef },
+    { "wgpuComputePassEncoderDispatchWorkgroups", (WGPUProc)wgpuComputePassEncoderDispatchWorkgroups },
+    { "wgpuComputePassEncoderDispatchWorkgroupsIndirect", (WGPUProc)wgpuComputePassEncoderDispatchWorkgroupsIndirect },
+    { "wgpuComputePassEncoderEnd", (WGPUProc)wgpuComputePassEncoderEnd },
+    { "wgpuComputePassEncoderInsertDebugMarker", (WGPUProc)wgpuComputePassEncoderInsertDebugMarker },
+    { "wgpuComputePassEncoderPopDebugGroup", (WGPUProc)wgpuComputePassEncoderPopDebugGroup },
+    { "wgpuComputePassEncoderPushDebugGroup", (WGPUProc)wgpuComputePassEncoderPushDebugGroup },
+    { "wgpuComputePassEncoderRelease", (WGPUProc)wgpuComputePassEncoderRelease },
+    { "wgpuComputePassEncoderSetBindGroup", (WGPUProc)wgpuComputePassEncoderSetBindGroup },
+    { "wgpuComputePassEncoderSetImmediates", (WGPUProc)wgpuComputePassEncoderSetImmediates },
+    { "wgpuComputePassEncoderSetLabel", (WGPUProc)wgpuComputePassEncoderSetLabel },
+    { "wgpuComputePassEncoderSetPipeline", (WGPUProc)wgpuComputePassEncoderSetPipeline },
+    { "wgpuComputePipelineAddRef", (WGPUProc)wgpuComputePipelineAddRef },
+    { "wgpuComputePipelineGetBindGroupLayout", (WGPUProc)wgpuComputePipelineGetBindGroupLayout },
+    { "wgpuComputePipelineRelease", (WGPUProc)wgpuComputePipelineRelease },
+    { "wgpuComputePipelineSetLabel", (WGPUProc)wgpuComputePipelineSetLabel },
+    { "wgpuCreateInstance", (WGPUProc)wgpuCreateInstance },
+    { "wgpuDeviceAddRef", (WGPUProc)wgpuDeviceAddRef },
+    { "wgpuDeviceCreateBindGroup", (WGPUProc)wgpuDeviceCreateBindGroup },
+    { "wgpuDeviceCreateBindGroupLayout", (WGPUProc)wgpuDeviceCreateBindGroupLayout },
+    { "wgpuDeviceCreateBuffer", (WGPUProc)wgpuDeviceCreateBuffer },
+    { "wgpuDeviceCreateCommandEncoder", (WGPUProc)wgpuDeviceCreateCommandEncoder },
+    { "wgpuDeviceCreateComputePipeline", (WGPUProc)wgpuDeviceCreateComputePipeline },
+    { "wgpuDeviceCreateComputePipelineAsync", (WGPUProc)wgpuDeviceCreateComputePipelineAsync },
+    { "wgpuDeviceCreatePipelineLayout", (WGPUProc)wgpuDeviceCreatePipelineLayout },
+    { "wgpuDeviceCreateQuerySet", (WGPUProc)wgpuDeviceCreateQuerySet },
+    { "wgpuDeviceCreateRenderBundleEncoder", (WGPUProc)wgpuDeviceCreateRenderBundleEncoder },
+    { "wgpuDeviceCreateRenderPipeline", (WGPUProc)wgpuDeviceCreateRenderPipeline },
+    { "wgpuDeviceCreateRenderPipelineAsync", (WGPUProc)wgpuDeviceCreateRenderPipelineAsync },
+    { "wgpuDeviceCreateSampler", (WGPUProc)wgpuDeviceCreateSampler },
+    { "wgpuDeviceCreateShaderModule", (WGPUProc)wgpuDeviceCreateShaderModule },
+    { "wgpuDeviceCreateTexture", (WGPUProc)wgpuDeviceCreateTexture },
+    { "wgpuDeviceDestroy", (WGPUProc)wgpuDeviceDestroy },
+    { "wgpuDeviceGetAdapterInfo", (WGPUProc)wgpuDeviceGetAdapterInfo },
+    { "wgpuDeviceGetFeatures", (WGPUProc)wgpuDeviceGetFeatures },
+    { "wgpuDeviceGetLimits", (WGPUProc)wgpuDeviceGetLimits },
+    { "wgpuDeviceGetLostFuture", (WGPUProc)wgpuDeviceGetLostFuture },
+    { "wgpuDeviceGetQueue", (WGPUProc)wgpuDeviceGetQueue },
+    { "wgpuDeviceHasFeature", (WGPUProc)wgpuDeviceHasFeature },
+    { "wgpuDevicePopErrorScope", (WGPUProc)wgpuDevicePopErrorScope },
+    { "wgpuDevicePushErrorScope", (WGPUProc)wgpuDevicePushErrorScope },
+    { "wgpuDeviceRelease", (WGPUProc)wgpuDeviceRelease },
+    { "wgpuDeviceSetLabel", (WGPUProc)wgpuDeviceSetLabel },
+    { "wgpuExternalTextureAddRef", (WGPUProc)wgpuExternalTextureAddRef },
+    { "wgpuExternalTextureRelease", (WGPUProc)wgpuExternalTextureRelease },
+    { "wgpuExternalTextureSetLabel", (WGPUProc)wgpuExternalTextureSetLabel },
+    { "wgpuGetInstanceFeatures", (WGPUProc)wgpuGetInstanceFeatures },
+    { "wgpuGetInstanceLimits", (WGPUProc)wgpuGetInstanceLimits },
+    { "wgpuHasInstanceFeature", (WGPUProc)wgpuHasInstanceFeature },
+    { "wgpuInstanceAddRef", (WGPUProc)wgpuInstanceAddRef },
+    { "wgpuInstanceCreateSurface", (WGPUProc)wgpuInstanceCreateSurface },
+    { "wgpuInstanceGetWGSLLanguageFeatures", (WGPUProc)wgpuInstanceGetWGSLLanguageFeatures },
+    { "wgpuInstanceHasWGSLLanguageFeature", (WGPUProc)wgpuInstanceHasWGSLLanguageFeature },
+    { "wgpuInstanceProcessEvents", (WGPUProc)wgpuInstanceProcessEvents },
+    { "wgpuInstanceRelease", (WGPUProc)wgpuInstanceRelease },
+    { "wgpuInstanceRequestAdapter", (WGPUProc)wgpuInstanceRequestAdapter },
+    { "wgpuInstanceWaitAny", (WGPUProc)wgpuInstanceWaitAny },
+    { "wgpuPipelineLayoutAddRef", (WGPUProc)wgpuPipelineLayoutAddRef },
+    { "wgpuPipelineLayoutRelease", (WGPUProc)wgpuPipelineLayoutRelease },
+    { "wgpuPipelineLayoutSetLabel", (WGPUProc)wgpuPipelineLayoutSetLabel },
+    { "wgpuQuerySetAddRef", (WGPUProc)wgpuQuerySetAddRef },
+    { "wgpuQuerySetDestroy", (WGPUProc)wgpuQuerySetDestroy },
+    { "wgpuQuerySetGetCount", (WGPUProc)wgpuQuerySetGetCount },
+    { "wgpuQuerySetGetType", (WGPUProc)wgpuQuerySetGetType },
+    { "wgpuQuerySetRelease", (WGPUProc)wgpuQuerySetRelease },
+    { "wgpuQuerySetSetLabel", (WGPUProc)wgpuQuerySetSetLabel },
+    { "wgpuQueueAddRef", (WGPUProc)wgpuQueueAddRef },
+    { "wgpuQueueOnSubmittedWorkDone", (WGPUProc)wgpuQueueOnSubmittedWorkDone },
+    { "wgpuQueueRelease", (WGPUProc)wgpuQueueRelease },
+    { "wgpuQueueSetLabel", (WGPUProc)wgpuQueueSetLabel },
+    { "wgpuQueueSubmit", (WGPUProc)wgpuQueueSubmit },
+    { "wgpuQueueWriteBuffer", (WGPUProc)wgpuQueueWriteBuffer },
+    { "wgpuQueueWriteTexture", (WGPUProc)wgpuQueueWriteTexture },
+    { "wgpuRenderBundleAddRef", (WGPUProc)wgpuRenderBundleAddRef },
+    { "wgpuRenderBundleEncoderAddRef", (WGPUProc)wgpuRenderBundleEncoderAddRef },
+    { "wgpuRenderBundleEncoderDraw", (WGPUProc)wgpuRenderBundleEncoderDraw },
+    { "wgpuRenderBundleEncoderDrawIndexed", (WGPUProc)wgpuRenderBundleEncoderDrawIndexed },
+    { "wgpuRenderBundleEncoderDrawIndexedIndirect", (WGPUProc)wgpuRenderBundleEncoderDrawIndexedIndirect },
+    { "wgpuRenderBundleEncoderDrawIndirect", (WGPUProc)wgpuRenderBundleEncoderDrawIndirect },
+    { "wgpuRenderBundleEncoderFinish", (WGPUProc)wgpuRenderBundleEncoderFinish },
+    { "wgpuRenderBundleEncoderInsertDebugMarker", (WGPUProc)wgpuRenderBundleEncoderInsertDebugMarker },
+    { "wgpuRenderBundleEncoderPopDebugGroup", (WGPUProc)wgpuRenderBundleEncoderPopDebugGroup },
+    { "wgpuRenderBundleEncoderPushDebugGroup", (WGPUProc)wgpuRenderBundleEncoderPushDebugGroup },
+    { "wgpuRenderBundleEncoderRelease", (WGPUProc)wgpuRenderBundleEncoderRelease },
+    { "wgpuRenderBundleEncoderSetBindGroup", (WGPUProc)wgpuRenderBundleEncoderSetBindGroup },
+    { "wgpuRenderBundleEncoderSetImmediates", (WGPUProc)wgpuRenderBundleEncoderSetImmediates },
+    { "wgpuRenderBundleEncoderSetIndexBuffer", (WGPUProc)wgpuRenderBundleEncoderSetIndexBuffer },
+    { "wgpuRenderBundleEncoderSetLabel", (WGPUProc)wgpuRenderBundleEncoderSetLabel },
+    { "wgpuRenderBundleEncoderSetPipeline", (WGPUProc)wgpuRenderBundleEncoderSetPipeline },
+    { "wgpuRenderBundleEncoderSetVertexBuffer", (WGPUProc)wgpuRenderBundleEncoderSetVertexBuffer },
+    { "wgpuRenderBundleRelease", (WGPUProc)wgpuRenderBundleRelease },
+    { "wgpuRenderBundleSetLabel", (WGPUProc)wgpuRenderBundleSetLabel },
+    { "wgpuRenderPassEncoderAddRef", (WGPUProc)wgpuRenderPassEncoderAddRef },
+    { "wgpuRenderPassEncoderBeginOcclusionQuery", (WGPUProc)wgpuRenderPassEncoderBeginOcclusionQuery },
+    { "wgpuRenderPassEncoderDraw", (WGPUProc)wgpuRenderPassEncoderDraw },
+    { "wgpuRenderPassEncoderDrawIndexed", (WGPUProc)wgpuRenderPassEncoderDrawIndexed },
+    { "wgpuRenderPassEncoderDrawIndexedIndirect", (WGPUProc)wgpuRenderPassEncoderDrawIndexedIndirect },
+    { "wgpuRenderPassEncoderDrawIndirect", (WGPUProc)wgpuRenderPassEncoderDrawIndirect },
+    { "wgpuRenderPassEncoderEnd", (WGPUProc)wgpuRenderPassEncoderEnd },
+    { "wgpuRenderPassEncoderEndOcclusionQuery", (WGPUProc)wgpuRenderPassEncoderEndOcclusionQuery },
+    { "wgpuRenderPassEncoderExecuteBundles", (WGPUProc)wgpuRenderPassEncoderExecuteBundles },
+    { "wgpuRenderPassEncoderInsertDebugMarker", (WGPUProc)wgpuRenderPassEncoderInsertDebugMarker },
+    { "wgpuRenderPassEncoderPopDebugGroup", (WGPUProc)wgpuRenderPassEncoderPopDebugGroup },
+    { "wgpuRenderPassEncoderPushDebugGroup", (WGPUProc)wgpuRenderPassEncoderPushDebugGroup },
+    { "wgpuRenderPassEncoderRelease", (WGPUProc)wgpuRenderPassEncoderRelease },
+    { "wgpuRenderPassEncoderSetBindGroup", (WGPUProc)wgpuRenderPassEncoderSetBindGroup },
+    { "wgpuRenderPassEncoderSetBlendConstant", (WGPUProc)wgpuRenderPassEncoderSetBlendConstant },
+    { "wgpuRenderPassEncoderSetImmediates", (WGPUProc)wgpuRenderPassEncoderSetImmediates },
+    { "wgpuRenderPassEncoderSetIndexBuffer", (WGPUProc)wgpuRenderPassEncoderSetIndexBuffer },
+    { "wgpuRenderPassEncoderSetLabel", (WGPUProc)wgpuRenderPassEncoderSetLabel },
+    { "wgpuRenderPassEncoderSetPipeline", (WGPUProc)wgpuRenderPassEncoderSetPipeline },
+    { "wgpuRenderPassEncoderSetScissorRect", (WGPUProc)wgpuRenderPassEncoderSetScissorRect },
+    { "wgpuRenderPassEncoderSetStencilReference", (WGPUProc)wgpuRenderPassEncoderSetStencilReference },
+    { "wgpuRenderPassEncoderSetVertexBuffer", (WGPUProc)wgpuRenderPassEncoderSetVertexBuffer },
+    { "wgpuRenderPassEncoderSetViewport", (WGPUProc)wgpuRenderPassEncoderSetViewport },
+    { "wgpuRenderPipelineAddRef", (WGPUProc)wgpuRenderPipelineAddRef },
+    { "wgpuRenderPipelineGetBindGroupLayout", (WGPUProc)wgpuRenderPipelineGetBindGroupLayout },
+    { "wgpuRenderPipelineRelease", (WGPUProc)wgpuRenderPipelineRelease },
+    { "wgpuRenderPipelineSetLabel", (WGPUProc)wgpuRenderPipelineSetLabel },
+    { "wgpuSamplerAddRef", (WGPUProc)wgpuSamplerAddRef },
+    { "wgpuSamplerRelease", (WGPUProc)wgpuSamplerRelease },
+    { "wgpuSamplerSetLabel", (WGPUProc)wgpuSamplerSetLabel },
+    { "wgpuShaderModuleAddRef", (WGPUProc)wgpuShaderModuleAddRef },
+    { "wgpuShaderModuleGetCompilationInfo", (WGPUProc)wgpuShaderModuleGetCompilationInfo },
+    { "wgpuShaderModuleRelease", (WGPUProc)wgpuShaderModuleRelease },
+    { "wgpuShaderModuleSetLabel", (WGPUProc)wgpuShaderModuleSetLabel },
+    { "wgpuSupportedFeaturesFreeMembers", (WGPUProc)wgpuSupportedFeaturesFreeMembers },
+    { "wgpuSupportedInstanceFeaturesFreeMembers", (WGPUProc)wgpuSupportedInstanceFeaturesFreeMembers },
+    { "wgpuSupportedWGSLLanguageFeaturesFreeMembers", (WGPUProc)wgpuSupportedWGSLLanguageFeaturesFreeMembers },
+    { "wgpuSurfaceAddRef", (WGPUProc)wgpuSurfaceAddRef },
+    { "wgpuSurfaceCapabilitiesFreeMembers", (WGPUProc)wgpuSurfaceCapabilitiesFreeMembers },
+    { "wgpuSurfaceConfigure", (WGPUProc)wgpuSurfaceConfigure },
+    { "wgpuSurfaceGetCapabilities", (WGPUProc)wgpuSurfaceGetCapabilities },
+    { "wgpuSurfaceGetCurrentTexture", (WGPUProc)wgpuSurfaceGetCurrentTexture },
+    { "wgpuSurfacePresent", (WGPUProc)wgpuSurfacePresent },
+    { "wgpuSurfaceRelease", (WGPUProc)wgpuSurfaceRelease },
+    { "wgpuSurfaceSetLabel", (WGPUProc)wgpuSurfaceSetLabel },
+    { "wgpuSurfaceUnconfigure", (WGPUProc)wgpuSurfaceUnconfigure },
+    { "wgpuTextureAddRef", (WGPUProc)wgpuTextureAddRef },
+    { "wgpuTextureCreateView", (WGPUProc)wgpuTextureCreateView },
+    { "wgpuTextureDestroy", (WGPUProc)wgpuTextureDestroy },
+    { "wgpuTextureGetDepthOrArrayLayers", (WGPUProc)wgpuTextureGetDepthOrArrayLayers },
+    { "wgpuTextureGetDimension", (WGPUProc)wgpuTextureGetDimension },
+    { "wgpuTextureGetFormat", (WGPUProc)wgpuTextureGetFormat },
+    { "wgpuTextureGetHeight", (WGPUProc)wgpuTextureGetHeight },
+    { "wgpuTextureGetMipLevelCount", (WGPUProc)wgpuTextureGetMipLevelCount },
+    { "wgpuTextureGetSampleCount", (WGPUProc)wgpuTextureGetSampleCount },
+    { "wgpuTextureGetTextureBindingViewDimension", (WGPUProc)wgpuTextureGetTextureBindingViewDimension },
+    { "wgpuTextureGetUsage", (WGPUProc)wgpuTextureGetUsage },
+    { "wgpuTextureGetWidth", (WGPUProc)wgpuTextureGetWidth },
+    { "wgpuTextureRelease", (WGPUProc)wgpuTextureRelease },
+    { "wgpuTextureSetLabel", (WGPUProc)wgpuTextureSetLabel },
+    { "wgpuTextureViewAddRef", (WGPUProc)wgpuTextureViewAddRef },
+    { "wgpuTextureViewRelease", (WGPUProc)wgpuTextureViewRelease },
+    { "wgpuTextureViewSetLabel", (WGPUProc)wgpuTextureViewSetLabel },
+};
+
+WGPUProc wgpuGetProcAddress(WGPUStringView procName)
+{
+    if (!procName.data)
+        return NULL;
+    for (size_t i = 0; i < sizeof rw_procs / sizeof rw_procs[0]; ++i) {
+        const char *name = rw_procs[i].name;
+        if (strlen(name) == procName.length
+            && memcmp(name, procName.data, procName.length) == 0)
+            return rw_procs[i].proc;
+    }
+    return NULL;
 }

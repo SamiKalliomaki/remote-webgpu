@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>remote-webgpu e2e client</title>
+<style>
+  /* The canvas size is fixed so the golden-screenshot test renders the
+   * same pixels regardless of the browser's window size. */
+  html, body { margin: 0; background: #000; }
+  canvas { display: block; width: 480px; height: 320px; }
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<script type="module" src="dist/main.js"></script>
+</body>
+</html>

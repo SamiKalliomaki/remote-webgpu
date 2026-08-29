@@ -37,8 +37,9 @@ Commands:
 
 ```sh
 npm install
-npm run gen      # regenerate src/gen/ from ../proto (needs protoc)
-npm run check    # typecheck
+npm run gen        # regenerate src/gen/ from ../proto (needs protoc)
+npm run gen:enums  # regenerate src/gen/enums.ts from webgpu.h
+npm run check      # typecheck
 ```
 
 The package is consumed as TypeScript source (see `exports`); bundle it with

@@ -9,8 +9,8 @@
  * (the ServerHello/ClientHello handshake).
  *
  * Everything past the handshake -- executing the server's device methods on
- * the local GPU and presenting frames to the canvas -- is TODO and will hang
- * off `handleEnvelope` as the protocol grows.
+ * the local GPU, presenting frames to the canvas and answering the
+ * round-trips -- lives in `src/executor.ts`.
  */
 
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
@@ -20,6 +20,10 @@ import {
   type Envelope,
 } from "./gen/remote_webgpu_pb.js";
 import { CommandExecutor, type ReplyKind } from "./executor.js";
+import {
+  FEATURE_NAME_VALUES,
+  WGSL_LANGUAGE_FEATURE_VALUES,
+} from "./gen/enums.js";
 
 export interface RemoteGpuClientOptions {
   /**
@@ -122,6 +126,8 @@ export class RemoteGpuClient {
     const size = options.canvas
       ? RemoteGpuClient.canvasSize(options.canvas)
       : { width: 0, height: 0 };
+    const wgsl = typeof navigator !== "undefined" && navigator.gpu
+      ? navigator.gpu.wgslLanguageFeatures : undefined;
     const hello = create(EnvelopeSchema, {
       kind: {
         case: "clientHello",
@@ -136,6 +142,17 @@ export class RemoteGpuClient {
           },
           canvasWidth: size.width,
           canvasHeight: size.height,
+          limits: adapter ? RemoteGpuClient.limitsMessage(adapter.limits) : undefined,
+          features: adapter
+            ? [...adapter.features]
+                .map((f) => FEATURE_NAME_VALUES[f])
+                .filter((v): v is number => v !== undefined)
+            : [],
+          wgslFeatures: wgsl
+            ? [...wgsl]
+                .map((f) => WGSL_LANGUAGE_FEATURE_VALUES[f])
+                .filter((v): v is number => v !== undefined)
+            : [],
         },
       },
     });
@@ -157,6 +174,45 @@ export class RemoteGpuClient {
    */
   sendEvent(name: string, payload: Uint8Array = new Uint8Array()): void {
     this.send({ case: "event", value: { kind: { case: "user", value: { name, payload } } } });
+  }
+
+  /** The adapter's GPUSupportedLimits as a wire Limits message. */
+  private static limitsMessage(l: GPUSupportedLimits) {
+    return {
+      maxTextureDimension1d: l.maxTextureDimension1D,
+      maxTextureDimension2d: l.maxTextureDimension2D,
+      maxTextureDimension3d: l.maxTextureDimension3D,
+      maxTextureArrayLayers: l.maxTextureArrayLayers,
+      maxBindGroups: l.maxBindGroups,
+      maxBindGroupsPlusVertexBuffers: l.maxBindGroupsPlusVertexBuffers,
+      maxBindingsPerBindGroup: l.maxBindingsPerBindGroup,
+      maxDynamicUniformBuffersPerPipelineLayout:
+        l.maxDynamicUniformBuffersPerPipelineLayout,
+      maxDynamicStorageBuffersPerPipelineLayout:
+        l.maxDynamicStorageBuffersPerPipelineLayout,
+      maxSampledTexturesPerShaderStage: l.maxSampledTexturesPerShaderStage,
+      maxSamplersPerShaderStage: l.maxSamplersPerShaderStage,
+      maxStorageBuffersPerShaderStage: l.maxStorageBuffersPerShaderStage,
+      maxStorageTexturesPerShaderStage: l.maxStorageTexturesPerShaderStage,
+      maxUniformBuffersPerShaderStage: l.maxUniformBuffersPerShaderStage,
+      maxUniformBufferBindingSize: BigInt(l.maxUniformBufferBindingSize),
+      maxStorageBufferBindingSize: BigInt(l.maxStorageBufferBindingSize),
+      minUniformBufferOffsetAlignment: l.minUniformBufferOffsetAlignment,
+      minStorageBufferOffsetAlignment: l.minStorageBufferOffsetAlignment,
+      maxVertexBuffers: l.maxVertexBuffers,
+      maxBufferSize: BigInt(l.maxBufferSize),
+      maxVertexAttributes: l.maxVertexAttributes,
+      maxVertexBufferArrayStride: l.maxVertexBufferArrayStride,
+      maxInterStageShaderVariables: l.maxInterStageShaderVariables,
+      maxColorAttachments: l.maxColorAttachments,
+      maxColorAttachmentBytesPerSample: l.maxColorAttachmentBytesPerSample,
+      maxComputeWorkgroupStorageSize: l.maxComputeWorkgroupStorageSize,
+      maxComputeInvocationsPerWorkgroup: l.maxComputeInvocationsPerWorkgroup,
+      maxComputeWorkgroupSizeX: l.maxComputeWorkgroupSizeX,
+      maxComputeWorkgroupSizeY: l.maxComputeWorkgroupSizeY,
+      maxComputeWorkgroupSizeZ: l.maxComputeWorkgroupSizeZ,
+      maxComputeWorkgroupsPerDimension: l.maxComputeWorkgroupsPerDimension,
+    };
   }
 
   /** Canvas size in device pixels (what the server should render at). */
