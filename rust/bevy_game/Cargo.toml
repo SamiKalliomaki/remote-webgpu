@@ -1,0 +1,15 @@
+[package]
+name = "bevy_game"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A Bevy game whose players each connect a browser tab as their own view"
+
+[dependencies]
+# The game itself: ECS, scheduling, time and math.  Bevy's renderer is
+# deliberately left out (see the note at the top of src/main.rs).
+bevy = { version = "0.19", default-features = false, features = ["std", "async_executor"] }
+wgpu = { path = "../wgpu" }
+winit = { path = "../winit" }
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"

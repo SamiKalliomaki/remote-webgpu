@@ -5,4 +5,5 @@ members = [
     "remote-wgpu-runtime",
     "wgpu",
     "winit",
+    "bevy_game",
 ]

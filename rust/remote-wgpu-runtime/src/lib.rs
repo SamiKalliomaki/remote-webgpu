@@ -466,6 +466,14 @@ impl Runtime {
             .unwrap();
     }
 
+    /// Claim the next connected client no window has claimed yet, or
+    /// `None` if every connected client is already claimed.  The
+    /// non-blocking counterpart of [`Runtime::next_client`], for
+    /// applications that let clients join while they are running.
+    pub fn try_next_client(&self) -> Option<Arc<Client>> {
+        self.unclaimed.lock().unwrap().pop_front()
+    }
+
     /// Claim the next connected client no window has claimed yet, blocking
     /// until one connects.  Each `Window` owns the client it claims.
     pub fn next_client(&self) -> Arc<Client> {

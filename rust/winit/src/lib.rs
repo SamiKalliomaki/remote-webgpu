@@ -622,6 +622,11 @@ pub mod event_loop {
                             }
                             ClientEvent::Disconnected => {
                                 app.window_event(&active, window_id, WindowEvent::CloseRequested);
+                                // The client is gone for good; stop polling it.
+                                active
+                                    .windows
+                                    .borrow_mut()
+                                    .retain(|w| w.id != window.id);
                             }
                         }
                         if active.exit.get() {
@@ -711,7 +716,22 @@ pub mod event_loop {
             &self,
             _attributes: WindowAttributes,
         ) -> Result<Window, OsError> {
-            let client = runtime().next_client();
+            Ok(self.window_for(runtime().next_client()))
+        }
+
+        /// A remote-webgpu extension: claim a client that has connected but
+        /// has no window yet, without blocking.  Returns `None` while every
+        /// connected client already has a window.  Applications that accept
+        /// clients joining at any time poll this instead of calling the
+        /// blocking [`ActiveEventLoop::create_window`].
+        pub fn create_window_for_new_client(
+            &self,
+            _attributes: WindowAttributes,
+        ) -> Option<Window> {
+            runtime().try_next_client().map(|client| self.window_for(client))
+        }
+
+        fn window_for(&self, client: Arc<Client>) -> Window {
             let id = self.next_window_id.get();
             self.next_window_id.set(id + 1);
             let shared = Arc::new(WindowShared {
@@ -720,7 +740,7 @@ pub mod event_loop {
                 redraw_requested: AtomicBool::new(false),
             });
             self.windows.borrow_mut().push(shared.clone());
-            Ok(Window { shared })
+            Window { shared }
         }
 
         pub fn exit(&self) {
