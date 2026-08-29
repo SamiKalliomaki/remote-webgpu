@@ -16,20 +16,29 @@ There is no OS window and no GLFW: the server renders to the connected
 client's canvas, at whatever size the client reports for it (initially in
 its `ClientHello`, later via `CanvasResize` notifications).
 
+The `remote_webgpu` library is transport-agnostic: it sends protocol
+messages through a callback the app provides and receives them via
+`wgpuRemoteAdapterReceiveData()`.  Everything websocket-specific lives here
+in the app:
+
 | File | Responsibility |
 | --- | --- |
 | `src/ws_server.c` | Listens on a TCP port, performs the RFC 6455 websocket handshake and hands back the connected fd. |
-| `src/gpu_setup.c` | Brings up the WebGPU instance, surface, adapter (from the socket fd) and device. Knows nothing about triangles. |
-| `src/render.c` | The main loop. It is handed an **already-created device** via `GpuContext` and only borrows it; it tracks the client's canvas size and reconfigures the surface when it changes. |
+| `src/ws_transport.c` | Websocket framing on that fd (binary messages, ping/pong, fragmentation). |
+| `src/connection.c` | Glues both to the library: `connection_send()` is the library's send callback, `connection_pump()` reads one message and feeds it to the library. |
+| `src/gpu_setup.c` | Brings up the WebGPU instance, surface, adapter (on top of the connection) and device. Knows nothing about triangles. |
+| `src/render.c` | The main loop. It is handed an **already-created device** via `GpuContext` and only borrows it; after each present it pumps the connection until the client's vsync future completes. |
 | `src/gpu_context.h` | The handover struct between the two. |
-| `src/main.c` | Wires them together: `gpu_setup()` → `render_run()` → `gpu_teardown()`. |
+| `src/main.c` | Wires them together: `connection_accept()` → `gpu_setup()` → `render_run()` → teardown. |
 
 ```c
-int gpu_socket = ws_server_accept_one(port);   /* blocks for the remote GPU */
+Connection conn;
+connection_accept(&conn, port);         /* blocks for the remote GPU */
 GpuContext ctx;
-gpu_setup(gpu_socket, fallback_width, fallback_height, &ctx);
+gpu_setup(&conn, fallback_width, fallback_height, &ctx);
 render_run(&ctx, &options);   /* device already exists; the loop just uses it */
 gpu_teardown(&ctx);
+connection_close(&conn);
 ```
 
 ## Dependencies

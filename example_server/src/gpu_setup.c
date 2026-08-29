@@ -65,6 +65,12 @@ static void on_device(WGPURequestDeviceStatus status, WGPUDevice device,
     req->done = 1;
 }
 
+/* GpuContext.pump: void* adapter shim over connection_pump(). */
+static int pump_connection(void *userdata)
+{
+    return connection_pump(userdata);
+}
+
 /* ------------------------------------------------------------------ */
 /* public API                                                         */
 /* ------------------------------------------------------------------ */
@@ -98,10 +104,12 @@ void gpu_remote_size(const GpuContext *ctx, uint32_t *width, uint32_t *height)
     }
 }
 
-int gpu_setup(int gpu_socket_fd, uint32_t fallback_width, uint32_t fallback_height,
+int gpu_setup(Connection *conn, uint32_t fallback_width, uint32_t fallback_height,
               GpuContext *out)
 {
     memset(out, 0, sizeof *out);
+    out->pump = pump_connection;
+    out->pump_userdata = conn;
 
     out->instance = wgpuCreateInstance(NULL);
     if (!out->instance) {
@@ -120,12 +128,20 @@ int gpu_setup(int gpu_socket_fd, uint32_t fallback_width, uint32_t fallback_heig
         goto fail;
     }
 
-    /* The adapter is not discovered locally: it wraps the socket to the
-     * remote GPU (the adapter takes ownership of the fd). */
-    out->adapter = wgpuRemoteInstanceCreateAdapter(out->instance, gpu_socket_fd);
+    /* The adapter is not discovered locally: it sends to the remote GPU
+     * through the connection.  It becomes ready once the client's hello
+     * has been pumped in. */
+    out->adapter = wgpuRemoteInstanceCreateAdapter(out->instance, connection_send, conn);
     if (!out->adapter) {
-        fprintf(stderr, "failed to create remote WebGPU adapter from socket\n");
+        fprintf(stderr, "failed to create remote WebGPU adapter\n");
         goto fail;
+    }
+    conn->adapter = out->adapter;
+    while (!wgpuRemoteAdapterIsReady(out->adapter)) {
+        if (connection_pump(conn) != 0) {
+            fprintf(stderr, "client disconnected during handshake\n");
+            goto fail;
+        }
     }
 
     WGPUDeviceDescriptor device_desc;

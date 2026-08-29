@@ -11,6 +11,15 @@
  * connected client's canvas.
  */
 typedef struct {
+    /*
+     * Blocks until at least one message from the client has been processed
+     * (completion callbacks fire from inside).  Returns 0 on success, -1
+     * when the client disconnected.  Set by gpu_setup(); render.c uses it
+     * to wait for vsync acks and buffer readbacks.
+     */
+    int (*pump)(void *userdata);
+    void *pump_userdata;
+
     WGPUInstance instance;
     WGPUSurface surface;
     WGPUAdapter adapter;

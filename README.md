@@ -7,10 +7,10 @@ browser tab exposing `navigator.gpu`).
 | Directory | What it is |
 | --- | --- |
 | `proto/` | The wire protocol, as protobuf messages.  One serialized `Envelope` per binary websocket message. |
-| `remote_webgpu/` | C static library implementing the `webgpu.h` headers.  Object lifetime, the socket-backed adapter and the hello handshake are real; every other entry point is a generated stub that aborts with `remote_webgpu: unimplemented: wgpu...`. |
+| `remote_webgpu/` | C static library implementing the `webgpu.h` headers.  Transport-agnostic: the app supplies a send callback and pushes received messages in via `wgpuRemoteAdapterReceiveData()`; completions (vsync futures, buffer maps) fire from inside that call.  Everything the triangle demo needs is implemented; the rest are generated stubs that abort with `remote_webgpu: unimplemented: wgpu...`. |
 | `client/` | `remote-webgpu-client`, the TypeScript client library.  Connects to the server, obtains a local adapter/device from `navigator.gpu` and performs the handshake. |
 | `example_client/` | Web page with a full-screen canvas that uses the client library. |
-| `example_server/` | Native example app (spinning triangle) built on `remote_webgpu`.  Waits for a websocket connection, creates its adapter from that socket, then renders at whatever size the client reports for its canvas — no window system needed server-side. |
+| `example_server/` | Native example app (spinning triangle) built on `remote_webgpu`.  Owns all the websocket code, hands the library a send callback, pumps received messages into it, and renders at whatever size the client reports for its canvas — no window system needed server-side. |
 
 ## Protocol so far
 

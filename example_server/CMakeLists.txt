@@ -11,6 +11,8 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/../remote_webgpu remote_webgpu)
 add_executable(spinning_triangle
     src/main.c
     src/gpu_setup.c
+    src/connection.c
+    src/ws_transport.c
     src/render.c
     src/ws_server.c)
 

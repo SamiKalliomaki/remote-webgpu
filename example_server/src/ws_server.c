@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -197,6 +198,11 @@ int ws_server_accept_one(uint16_t port)
         close(fd);
         return -1;
     }
+
+    /* The protocol is request/response per frame (Present -> PresentDone);
+     * Nagle's algorithm turns that into ~40ms delayed-ACK stalls. */
+    int nodelay = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof nodelay);
 
     printf("ws_server: client connected\n");
     fflush(stdout);

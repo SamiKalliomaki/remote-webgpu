@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <sys/uio.h>
 #include <unistd.h>
 
@@ -57,13 +58,18 @@ static int send_frame(int fd, unsigned opcode, const uint8_t *data, size_t len)
         { (void *)data, len },
     };
     size_t total = header_len + len;
-    int iovcnt = len ? 2 : 1;
+    struct msghdr msg;
+    memset(&msg, 0, sizeof msg);
+    msg.msg_iov = iov;
+    msg.msg_iovlen = len ? 2 : 1;
     while (total) {
-        ssize_t n = writev(fd, iov, iovcnt);
+        /* MSG_NOSIGNAL: teardown-time sends after a disconnect must fail
+         * with EPIPE, not kill the process. */
+        ssize_t n = sendmsg(fd, &msg, MSG_NOSIGNAL);
         if (n <= 0)
             return -1;
         total -= (size_t)n;
-        for (int i = 0; i < iovcnt && n; ++i) {
+        for (size_t i = 0; i < (size_t)msg.msg_iovlen && n; ++i) {
             size_t take = (size_t)n < iov[i].iov_len ? (size_t)n : iov[i].iov_len;
             iov[i].iov_base = (char *)iov[i].iov_base + take;
             iov[i].iov_len -= take;

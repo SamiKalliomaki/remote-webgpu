@@ -1,13 +1,13 @@
 #include "render.h"
 #include "gpu_setup.h"
 
-#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
+#include <webgpu/remote.h>
 #include <webgpu/wgpu.h>
 
 static double now_seconds(void)
@@ -228,6 +228,16 @@ typedef struct {
     int done;
 } MapRequest;
 
+typedef struct {
+    int done;
+} VsyncWait;
+
+static void on_vsync(void *ud1, void *ud2)
+{
+    (void)ud2;
+    ((VsyncWait *)ud1)->done = 1;
+}
+
 static void on_buffer_mapped(WGPUMapAsyncStatus status, WGPUStringView message,
                              void *ud1, void *ud2)
 {
@@ -318,8 +328,12 @@ static int save_screenshot(const GpuContext *ctx, WGPUTexture texture, const cha
     info.callback = on_buffer_mapped;
     info.userdata1 = &req;
     wgpuBufferMapAsync(readback, WGPUMapMode_Read, 0, (size_t)size, info);
+    /* The map completes when the client's reply is pumped in. */
     while (!req.done)
-        wgpuDevicePoll(ctx->device, true, NULL);
+        if (ctx->pump(ctx->pump_userdata) != 0) {
+            fprintf(stderr, "client disconnected during readback\n");
+            break;
+        }
 
     int rc = 1;
     if (req.status == WGPUMapAsyncStatus_Success) {
@@ -423,12 +437,24 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
         if (last_frame && opts.screenshot_path)
             rc = save_screenshot(ctx, frame.texture, opts.screenshot_path);
 
-        const WGPUStatus present_status = wgpuSurfacePresent(ctx->surface);
+        /* Queue the present, then pump the connection until the client
+         * acknowledges the vsync; that acknowledgement paces this loop to
+         * the client's refresh rate. */
+        wgpuSurfacePresent(ctx->surface);
+        VsyncWait vsync = {0};
+        WGPURemoteVsyncCallbackInfo vsync_cb = { on_vsync, &vsync, NULL };
+        wgpuRemoteSurfaceOnNextVsync(ctx->surface, vsync_cb);
+
         wgpuTextureViewRelease(view);
         wgpuTextureRelease(frame.texture);
-        wgpuDevicePoll(ctx->device, false, NULL);
 
-        if (present_status != WGPUStatus_Success) {
+        int disconnected = 0;
+        while (!vsync.done)
+            if (ctx->pump(ctx->pump_userdata) != 0) {
+                disconnected = 1;
+                break;
+            }
+        if (disconnected) {
             /* The client went away; that is the normal way this loop ends. */
             fprintf(stderr, "client disconnected after %u frames\n", frames);
             break;

@@ -9,18 +9,14 @@
 
 #include "remote_webgpu_internal.h"
 
-#include <netinet/in.h>
-#include <netinet/tcp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #include <webgpu/remote.h>
 #include <webgpu/wgpu.h>
 
 #include "remote_webgpu.pb-c.h"
-#include "ws_transport.h"
 
 static void *alloc_object(size_t size);
 static int release_object(RemoteObject *obj);
@@ -56,61 +52,20 @@ char *rw_dup_stringview(WGPUStringView s)
 /* protobuf envelopes over the websocket                              */
 /* ------------------------------------------------------------------ */
 
-int rw_send_envelope(int fd, const RemoteWebgpu__Envelope *envelope)
+void rw_send_envelope(RemoteAdapter *adapter, const RemoteWebgpu__Envelope *envelope)
 {
     size_t len = remote_webgpu__envelope__get_packed_size(envelope);
     uint8_t *buf = malloc(len ? len : 1);
     if (!buf)
-        return -1;
+        return;
     remote_webgpu__envelope__pack(envelope, buf);
-    int rc = ws_send_binary(fd, buf, len);
+    adapter->send(buf, len, adapter->send_userdata);
     free(buf);
-    return rc;
 }
 
-/* Caller frees with remote_webgpu__envelope__free_unpacked(env, NULL). */
-static RemoteWebgpu__Envelope *recv_envelope(int fd)
+RemoteAdapter *rw_device_adapter(RemoteDevice *device)
 {
-    uint8_t *buf;
-    size_t len;
-    if (ws_recv_binary(fd, &buf, &len) != 0)
-        return NULL;
-    RemoteWebgpu__Envelope *envelope = remote_webgpu__envelope__unpack(NULL, len, buf);
-    free(buf);
-    if (!envelope)
-        fprintf(stderr, "remote_webgpu: cannot parse Envelope from client\n");
-    return envelope;
-}
-
-RemoteWebgpu__Envelope *rw_recv_expect(RemoteAdapter *adapter,
-                                       RemoteWebgpu__Envelope__KindCase kind)
-{
-    for (;;) {
-        RemoteWebgpu__Envelope *envelope = recv_envelope(adapter->socket_fd);
-        if (!envelope)
-            return NULL;
-        if (envelope->kind_case == kind)
-            return envelope;
-        if (envelope->kind_case == REMOTE_WEBGPU__ENVELOPE__KIND_CANVAS_RESIZE) {
-            adapter->canvas_width = envelope->canvas_resize->width;
-            adapter->canvas_height = envelope->canvas_resize->height;
-            remote_webgpu__envelope__free_unpacked(envelope, NULL);
-            continue;
-        }
-        if (envelope->kind_case == REMOTE_WEBGPU__ENVELOPE__KIND_ERROR)
-            fprintf(stderr, "remote_webgpu: client error: %s\n",
-                    envelope->error->message);
-        else
-            fprintf(stderr, "remote_webgpu: expected message kind %d, got %d\n",
-                    (int)kind, (int)envelope->kind_case);
-        remote_webgpu__envelope__free_unpacked(envelope, NULL);
-        return NULL;
-    }
-}
-
-int rw_device_fd(RemoteDevice *device)
-{
-    return device->adapter->socket_fd;
+    return device->adapter;
 }
 
 RemoteHandle *rw_handle_create(RemoteDevice *device)
@@ -140,59 +95,126 @@ void rw_handle_release(void *handle)
     RemoteWebgpu__Envelope envelope = REMOTE_WEBGPU__ENVELOPE__INIT;
     envelope.kind_case = REMOTE_WEBGPU__ENVELOPE__KIND_DESTROY_OBJECT;
     envelope.destroy_object = &destroy;
-    rw_send_envelope(rw_device_fd(self->device), &envelope);
+    rw_send_envelope(self->device->adapter, &envelope);
 
     free(self->mapped);
     wgpuDeviceRelease((WGPUDevice)self->device);
     free(self);
 }
 
-/*
- * Handshake: send ServerHello, expect ClientHello, keep the reported
- * adapter info.  Returns 0 on success.
- */
-static int adapter_handshake(RemoteAdapter *adapter)
+static void handle_client_hello(RemoteAdapter *adapter,
+                                const RemoteWebgpu__ClientHello *hello)
 {
-    RemoteWebgpu__ServerHello server_hello = REMOTE_WEBGPU__SERVER_HELLO__INIT;
-    server_hello.protocol_version = REMOTE_WEBGPU__PROTOCOL_VERSION__PROTOCOL_VERSION_CURRENT;
-
-    RemoteWebgpu__Envelope envelope = REMOTE_WEBGPU__ENVELOPE__INIT;
-    envelope.kind_case = REMOTE_WEBGPU__ENVELOPE__KIND_SERVER_HELLO;
-    envelope.server_hello = &server_hello;
-    if (rw_send_envelope(adapter->socket_fd, &envelope) != 0) {
-        fprintf(stderr, "remote_webgpu: failed to send ServerHello\n");
-        return -1;
-    }
-
-    RemoteWebgpu__Envelope *reply =
-        rw_recv_expect(adapter, REMOTE_WEBGPU__ENVELOPE__KIND_CLIENT_HELLO);
-    if (!reply)
-        return -1;
-
-    int rc = -1;
-    if (reply->client_hello->protocol_version
-               != REMOTE_WEBGPU__PROTOCOL_VERSION__PROTOCOL_VERSION_CURRENT) {
+    if (hello->protocol_version
+        != REMOTE_WEBGPU__PROTOCOL_VERSION__PROTOCOL_VERSION_CURRENT) {
         fprintf(stderr, "remote_webgpu: protocol version mismatch (client %u)\n",
-                reply->client_hello->protocol_version);
-    } else {
-        const RemoteWebgpu__AdapterInfo *info = reply->client_hello->adapter;
-        adapter->vendor = dup_or_empty(info ? info->vendor : NULL);
-        adapter->architecture = dup_or_empty(info ? info->architecture : NULL);
-        adapter->device = dup_or_empty(info ? info->device : NULL);
-        adapter->description = dup_or_empty(info ? info->description : NULL);
-        adapter->is_fallback = info ? info->is_fallback : 0;
-        adapter->canvas_width = reply->client_hello->canvas_width;
-        adapter->canvas_height = reply->client_hello->canvas_height;
-        fprintf(stderr,
-                "remote_webgpu: client adapter: vendor=\"%s\" architecture=\"%s\""
-                " device=\"%s\" description=\"%s\"%s\n",
-                adapter->vendor, adapter->architecture, adapter->device,
-                adapter->description, adapter->is_fallback ? " (fallback)" : "");
-        rc = 0;
+                hello->protocol_version);
+        adapter->failed = 1;
+        return;
     }
 
-    remote_webgpu__envelope__free_unpacked(reply, NULL);
-    return rc;
+    const RemoteWebgpu__AdapterInfo *info = hello->adapter;
+    adapter->vendor = dup_or_empty(info ? info->vendor : NULL);
+    adapter->architecture = dup_or_empty(info ? info->architecture : NULL);
+    adapter->device = dup_or_empty(info ? info->device : NULL);
+    adapter->description = dup_or_empty(info ? info->description : NULL);
+    adapter->is_fallback = info ? info->is_fallback : 0;
+    adapter->canvas_width = hello->canvas_width;
+    adapter->canvas_height = hello->canvas_height;
+    adapter->ready = 1;
+    fprintf(stderr,
+            "remote_webgpu: client adapter: vendor=\"%s\" architecture=\"%s\""
+            " device=\"%s\" description=\"%s\"%s\n",
+            adapter->vendor, adapter->architecture, adapter->device,
+            adapter->description, adapter->is_fallback ? " (fallback)" : "");
+}
+
+static void handle_map_buffer_data(RemoteAdapter *adapter,
+                                   const RemoteWebgpu__MapBufferData *data)
+{
+    RemoteHandle *handle = adapter->map_handle;
+    WGPUBufferMapCallbackInfo callback = adapter->map_callback;
+    adapter->map_handle = NULL;
+    memset(&adapter->map_callback, 0, sizeof adapter->map_callback);
+
+    if (!handle) {
+        fprintf(stderr, "remote_webgpu: unsolicited MapBufferData\n");
+        return;
+    }
+
+    WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Error;
+    WGPUStringView message = { NULL, 0 };
+    free(handle->mapped);
+    handle->mapped = malloc(data->data.len ? data->data.len : 1);
+    if (handle->mapped) {
+        memcpy(handle->mapped, data->data.data, data->data.len);
+        handle->mapped_len = data->data.len;
+        status = WGPUMapAsyncStatus_Success;
+    } else {
+        message.data = "out of memory";
+        message.length = strlen(message.data);
+    }
+
+    if (callback.callback)
+        callback.callback(status, message, callback.userdata1, callback.userdata2);
+}
+
+void wgpuRemoteAdapterReceiveData(WGPUAdapter adapter, void const *data, size_t size)
+{
+    RemoteAdapter *self = (RemoteAdapter *)adapter;
+    RemoteWebgpu__Envelope *envelope =
+        remote_webgpu__envelope__unpack(NULL, size, data);
+    if (!envelope) {
+        fprintf(stderr, "remote_webgpu: cannot parse Envelope from client\n");
+        self->failed = 1;
+        return;
+    }
+
+    switch (envelope->kind_case) {
+    case REMOTE_WEBGPU__ENVELOPE__KIND_CLIENT_HELLO:
+        handle_client_hello(self, envelope->client_hello);
+        break;
+
+    case REMOTE_WEBGPU__ENVELOPE__KIND_CANVAS_RESIZE:
+        self->canvas_width = envelope->canvas_resize->width;
+        self->canvas_height = envelope->canvas_resize->height;
+        break;
+
+    case REMOTE_WEBGPU__ENVELOPE__KIND_PRESENT_DONE:
+        if (self->vsync_pending) {
+            WGPURemoteVsyncCallbackInfo callback = self->vsync_callback;
+            self->vsync_pending = 0;
+            memset(&self->vsync_callback, 0, sizeof self->vsync_callback);
+            if (callback.callback)
+                callback.callback(callback.userdata1, callback.userdata2);
+        } else {
+            fprintf(stderr, "remote_webgpu: unsolicited PresentDone\n");
+        }
+        break;
+
+    case REMOTE_WEBGPU__ENVELOPE__KIND_MAP_BUFFER_DATA:
+        handle_map_buffer_data(self, envelope->map_buffer_data);
+        break;
+
+    case REMOTE_WEBGPU__ENVELOPE__KIND_ERROR:
+        fprintf(stderr, "remote_webgpu: client error: %s\n",
+                envelope->error->message);
+        self->failed = 1;
+        break;
+
+    default:
+        fprintf(stderr, "remote_webgpu: unexpected message kind %d from client\n",
+                (int)envelope->kind_case);
+        break;
+    }
+
+    remote_webgpu__envelope__free_unpacked(envelope, NULL);
+}
+
+WGPUBool wgpuRemoteAdapterIsReady(WGPUAdapter adapter)
+{
+    RemoteAdapter *self = (RemoteAdapter *)adapter;
+    return self->ready && !self->failed;
 }
 
 static void *alloc_object(size_t size)
@@ -241,9 +263,11 @@ void wgpuInstanceProcessEvents(WGPUInstance instance)
 /* adapter                                                            */
 /* ------------------------------------------------------------------ */
 
-WGPUAdapter wgpuRemoteInstanceCreateAdapter(WGPUInstance instance, int socket_fd)
+WGPUAdapter wgpuRemoteInstanceCreateAdapter(WGPUInstance instance,
+                                            WGPURemoteSendCallback send,
+                                            void *userdata)
 {
-    if (!instance || socket_fd < 0)
+    if (!instance || !send)
         return NULL;
 
     RemoteAdapter *adapter = alloc_object(sizeof *adapter);
@@ -252,21 +276,20 @@ WGPUAdapter wgpuRemoteInstanceCreateAdapter(WGPUInstance instance, int socket_fd
 
     adapter->instance = (RemoteInstance *)instance;
     wgpuInstanceAddRef(instance);
-    adapter->socket_fd = socket_fd;
+    adapter->send = send;
+    adapter->send_userdata = userdata;
     adapter->next_id = 1;
+    adapter->next_future_id = 1;
 
-    /* The protocol is request/response per frame (Present -> PresentDone);
-     * Nagle's algorithm turns that into ~40ms delayed-ACK stalls.  Best
-     * effort: fails harmlessly on non-TCP sockets. */
-    int nodelay = 1;
-    setsockopt(socket_fd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof nodelay);
+    /* Speak first; the adapter becomes ready when the client's hello is
+     * fed back in via wgpuRemoteAdapterReceiveData(). */
+    RemoteWebgpu__ServerHello server_hello = REMOTE_WEBGPU__SERVER_HELLO__INIT;
+    server_hello.protocol_version = REMOTE_WEBGPU__PROTOCOL_VERSION__PROTOCOL_VERSION_CURRENT;
+    RemoteWebgpu__Envelope envelope = REMOTE_WEBGPU__ENVELOPE__INIT;
+    envelope.kind_case = REMOTE_WEBGPU__ENVELOPE__KIND_SERVER_HELLO;
+    envelope.server_hello = &server_hello;
+    rw_send_envelope(adapter, &envelope);
 
-    if (adapter_handshake(adapter) != 0) {
-        /* Per the remote.h contract the fd is not consumed on failure. */
-        adapter->socket_fd = -1;
-        wgpuAdapterRelease((WGPUAdapter)adapter);
-        return NULL;
-    }
     return (WGPUAdapter)adapter;
 }
 
@@ -287,8 +310,6 @@ void wgpuAdapterRelease(WGPUAdapter adapter)
 {
     RemoteAdapter *self = (RemoteAdapter *)adapter;
     if (release_object(&self->obj)) {
-        if (self->socket_fd >= 0)
-            close(self->socket_fd);
         free(self->vendor);
         free(self->architecture);
         free(self->device);
@@ -475,5 +496,5 @@ void wgpuSurfaceConfigure(WGPUSurface surface, WGPUSurfaceConfiguration const *c
     RemoteWebgpu__Envelope envelope = REMOTE_WEBGPU__ENVELOPE__INIT;
     envelope.kind_case = REMOTE_WEBGPU__ENVELOPE__KIND_CONFIGURE_SURFACE;
     envelope.configure_surface = &configure;
-    rw_send_envelope(rw_device_fd(self->device), &envelope);
+    rw_send_envelope(self->device->adapter, &envelope);
 }

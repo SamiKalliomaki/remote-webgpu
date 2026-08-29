@@ -3,9 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "connection.h"
 #include "gpu_setup.h"
 #include "render.h"
-#include "ws_server.h"
 
 static void usage(const char *argv0)
 {
@@ -48,20 +48,24 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    /* Step 1: wait for the remote GPU to connect over a websocket. */
-    int gpu_socket = ws_server_accept_one((uint16_t)port);
-    if (gpu_socket < 0)
+    /* Step 1: wait for the remote GPU to connect over a websocket.  The
+     * connection (and all websocket knowledge) stays here, in the app. */
+    Connection conn;
+    if (connection_accept(&conn, (uint16_t)port) != 0)
         return 1;
 
-    /* Step 2: WebGPU device on top of that socket; the frame size comes
-     * from the client's canvas.  Nothing about the triangle here. */
+    /* Step 2: WebGPU device on top of that connection; the frame size
+     * comes from the client's canvas.  Nothing about the triangle here. */
     GpuContext ctx;
-    if (gpu_setup(gpu_socket, (uint32_t)width, (uint32_t)height, &ctx) != 0)
+    if (gpu_setup(&conn, (uint32_t)width, (uint32_t)height, &ctx) != 0) {
+        connection_close(&conn);
         return 1;
+    }
 
     /* Step 3: the main loop, handed a device it did not create. */
     int rc = render_run(&ctx, &options);
 
     gpu_teardown(&ctx);
+    connection_close(&conn);
     return rc;
 }

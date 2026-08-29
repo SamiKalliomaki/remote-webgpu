@@ -24,7 +24,6 @@ add_custom_command(
 add_library(remote_webgpu STATIC
     src/remote_webgpu.c
     src/remote_methods.c
-    src/ws_transport.c
     src/stubs.c   # regenerate with tools/generate_stubs.py
     ${PROTO_GEN_DIR}/remote_webgpu.pb-c.c)
 

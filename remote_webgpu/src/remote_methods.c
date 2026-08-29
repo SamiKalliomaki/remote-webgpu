@@ -22,7 +22,7 @@
         RemoteWebgpu__Envelope envelope_ = REMOTE_WEBGPU__ENVELOPE__INIT;        \
         envelope_.kind_case = REMOTE_WEBGPU__ENVELOPE__KIND_##KIND_ENUM;         \
         envelope_.field = (submsg);                                              \
-        rw_send_envelope(rw_device_fd(device), &envelope_);                      \
+        rw_send_envelope(rw_device_adapter(device), &envelope_);                 \
     } while (0)
 
 static uint32_t handle_id(const void *handle)
@@ -100,37 +100,29 @@ WGPUFuture wgpuBufferMapAsync(WGPUBuffer buffer, WGPUMapMode mode, size_t offset
 {
     (void)mode; /* only Read is supported; the message implies it */
     RemoteHandle *self = (RemoteHandle *)buffer;
-    WGPUFuture future = { 0 };
+    RemoteAdapter *adapter = rw_device_adapter(self->device);
+    WGPUFuture future = { adapter->next_future_id++ };
+
+    if (adapter->map_handle) {
+        fprintf(stderr, "remote_webgpu: only one outstanding buffer map is supported\n");
+        if (callbackInfo.callback) {
+            WGPUStringView message = { "a map is already pending", 24 };
+            callbackInfo.callback(WGPUMapAsyncStatus_Error, message,
+                                  callbackInfo.userdata1, callbackInfo.userdata2);
+        }
+        return future;
+    }
+
+    /* Completes (callback fires) when the client's MapBufferData reply is
+     * fed into wgpuRemoteAdapterReceiveData(). */
+    adapter->map_handle = self;
+    adapter->map_callback = callbackInfo;
 
     RemoteWebgpu__MapBufferRead msg = REMOTE_WEBGPU__MAP_BUFFER_READ__INIT;
     msg.buffer_id = self->id;
     msg.offset = offset;
     msg.size = size;
     SEND(self->device, MAP_BUFFER_READ, map_buffer_read, &msg);
-
-    WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Error;
-    WGPUStringView message = { NULL, 0 };
-    RemoteWebgpu__Envelope *reply =
-        rw_recv_expect(self->device->adapter,
-                       REMOTE_WEBGPU__ENVELOPE__KIND_MAP_BUFFER_DATA);
-    if (reply) {
-        const ProtobufCBinaryData *data = &reply->map_buffer_data->data;
-        free(self->mapped);
-        self->mapped = malloc(data->len ? data->len : 1);
-        if (self->mapped) {
-            memcpy(self->mapped, data->data, data->len);
-            self->mapped_len = data->len;
-            status = WGPUMapAsyncStatus_Success;
-        }
-        remote_webgpu__envelope__free_unpacked(reply, NULL);
-    } else {
-        message.data = "client did not return buffer contents";
-        message.length = strlen(message.data);
-    }
-
-    if (callbackInfo.callback)
-        callbackInfo.callback(status, message, callbackInfo.userdata1,
-                              callbackInfo.userdata2);
     return future;
 }
 
@@ -385,18 +377,29 @@ WGPUStatus wgpuSurfacePresent(WGPUSurface surface)
     if (!self->device)
         return WGPUStatus_Error;
 
+    /* Fire and forget: the client acknowledges with PresentDone once the
+     * frame is on screen, which completes the future handed out by
+     * wgpuRemoteSurfaceOnNextVsync(). */
     RemoteWebgpu__Present msg = REMOTE_WEBGPU__PRESENT__INIT;
     SEND(self->device, PRESENT, present, &msg);
-
-    /* The reply arrives once the frame is on the client's screen; this is
-     * what paces the render loop to the client's refresh rate. */
-    RemoteWebgpu__Envelope *reply =
-        rw_recv_expect(self->device->adapter,
-                       REMOTE_WEBGPU__ENVELOPE__KIND_PRESENT_DONE);
-    if (!reply)
-        return WGPUStatus_Error;
-    remote_webgpu__envelope__free_unpacked(reply, NULL);
     return WGPUStatus_Success;
+}
+
+WGPUFuture wgpuRemoteSurfaceOnNextVsync(WGPUSurface surface,
+                                        WGPURemoteVsyncCallbackInfo callbackInfo)
+{
+    RemoteSurface *self = (RemoteSurface *)surface;
+    WGPUFuture future = { 0 };
+    if (!self->device)
+        return future;
+
+    RemoteAdapter *adapter = rw_device_adapter(self->device);
+    future.id = adapter->next_future_id++;
+    if (adapter->vsync_pending)
+        fprintf(stderr, "remote_webgpu: replacing an unfired vsync callback\n");
+    adapter->vsync_callback = callbackInfo;
+    adapter->vsync_pending = 1;
+    return future;
 }
 
 WGPUTextureView wgpuTextureCreateView(WGPUTexture texture,
