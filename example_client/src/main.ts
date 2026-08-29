@@ -15,11 +15,20 @@ function log(message: string): void {
  * the library when the server configures the surface; the library reports
  * CSS-size changes to the server, which reconfigures to match. */
 
-/* FPS: counted per presented frame, displayed once a second. */
+/* FPS and protocol traffic: accumulated per presented frame, displayed
+ * once a second (messages/frame and bandwidth are averages over frames). */
 let frameCount = 0;
+let messageCount = 0;
+let byteCount = 0;
 setInterval(() => {
-  fpsBox.textContent = `${frameCount} fps`;
+  const perFrame = frameCount > 0 ? Math.round(messageCount / frameCount) : 0;
+  const kib = byteCount / 1024;
+  fpsBox.textContent =
+    `${frameCount} fps · ${perFrame} msgs/frame · ${
+      kib >= 1024 ? (kib / 1024).toFixed(1) + " MiB/s" : Math.round(kib) + " KiB/s"}`;
   frameCount = 0;
+  messageCount = 0;
+  byteCount = 0;
 }, 1000);
 
 /* The server to attach to; override with ?server=ws://host:port */
@@ -30,7 +39,11 @@ try {
   const client = await RemoteGpuClient.connect(url, {
     canvas,
     onStatus: log,
-    onFrame: () => { frameCount += 1; },
+    onFrame: (stats) => {
+      frameCount += 1;
+      messageCount += stats.messages;
+      byteCount += stats.bytes;
+    },
     onClose: (reason) => log(`disconnected: ${reason}`),
   });
   const info = client.adapter?.info;

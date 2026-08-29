@@ -156,6 +156,37 @@ impl Instance {
 
     /// The "window" is a connected client's canvas: the target (the
     /// winit-compatible `Window`) names which client the surface refers to.
+    /// The raw-handle escape hatch of real wgpu.  There are no real window
+    /// handles in this backend: a window's client id travels in a
+    /// [`raw_window_handle::WebWindowHandle`], and this decodes it again.
+    ///
+    /// # Safety
+    ///
+    /// Always safe here; the handle is only a client id, never dereferenced.
+    pub unsafe fn create_surface_unsafe<'window>(
+        &self,
+        target: SurfaceTargetUnsafe,
+    ) -> Result<Surface<'window>, CreateSurfaceError> {
+        let SurfaceTargetUnsafe::RawHandle { raw_window_handle, .. } = target;
+        let id = match raw_window_handle {
+            raw_window_handle::RawWindowHandle::Web(handle) => handle.id as u64,
+            _ => {
+                return Err(CreateSurfaceError {
+                    message: "remote surfaces are identified by WebWindowHandle client ids"
+                        .to_string(),
+                })
+            }
+        };
+        let client = runtime()
+            .clients()
+            .into_iter()
+            .find(|client| client.id() == id)
+            .ok_or_else(|| CreateSurfaceError {
+                message: format!("no connected client with id {id}"),
+            })?;
+        self.create_surface(client)
+    }
+
     pub fn create_surface<'window, T: HasRemoteClient + 'window>(
         &self,
         target: T,
@@ -164,6 +195,11 @@ impl Instance {
             inner: surface_shared(target.remote_client()),
             _marker: PhantomData,
         })
+    }
+
+    /// wgpu-core reports are not available for the remote backend.
+    pub fn generate_report(&self) -> Option<()> {
+        None
     }
 
     pub fn poll_all(&self, _force_wait: bool) -> bool {
@@ -278,6 +314,10 @@ impl Adapter {
             vendor: info.vendorID,
             device: info.deviceID,
             device_type: DeviceType::Other,
+            device_pci_bus_id: String::new(),
+            subgroup_min_size: 4,
+            subgroup_max_size: 128,
+            transient_saves_memory: false,
             driver: "remote-webgpu".to_string(),
             driver_info: String::new(),
             backend: Backend::BrowserWebGpu,
@@ -324,7 +364,24 @@ impl Adapter {
     ) -> Result<(Device, Queue), RequestDeviceError> {
         let _guard = rt().lock();
 
-        let features = map_features(desc.required_features);
+        let mut features = map_features(desc.required_features);
+        // WebGPU features newer than the wgpu-types 29 `Features` set cannot
+        // be named by the caller at all, but gate real validation rules in
+        // the browser (bevy's SSAO needs texture-formats-tier1 for R16Float
+        // storage textures, for example).  Implicitly request every one the
+        // adapter supports; they are purely additive.
+        const UNNAMEABLE_FEATURES: &[sys::WGPUFeatureName] = &[
+            sys::WGPUFeatureName_Subgroups,
+            sys::WGPUFeatureName_TextureFormatsTier1,
+            sys::WGPUFeatureName_TextureFormatsTier2,
+            sys::WGPUFeatureName_PrimitiveIndex,
+            sys::WGPUFeatureName_TextureComponentSwizzle,
+        ];
+        for &feature in UNNAMEABLE_FEATURES {
+            if unsafe { sys::wgpuAdapterHasFeature(self.raw(), feature) } != 0 {
+                features.push(feature);
+            }
+        }
         let limits = map_limits(&desc.required_limits);
 
         let mut raw_desc: sys::WGPUDeviceDescriptor = unsafe { std::mem::zeroed() };
@@ -332,7 +389,6 @@ impl Adapter {
         raw_desc.requiredFeatureCount = features.len();
         raw_desc.requiredFeatures = features.as_ptr();
         raw_desc.requiredLimits = &limits;
-        raw_desc.defaultQueue.label = sv(desc.default_queue.label);
         raw_desc.deviceLostCallbackInfo.mode = sys::WGPUCallbackMode_AllowProcessEvents;
         raw_desc.deviceLostCallbackInfo.callback = Some(device_lost_cb);
         raw_desc.uncapturedErrorCallbackInfo.callback = Some(uncaptured_error_cb);
@@ -391,11 +447,14 @@ unsafe extern "C" fn device_lost_cb(
     log::error!("remote-wgpu: device lost: {}", from_sv(message));
 }
 
-type ErrorHandler = Arc<dyn Fn(&Error) + Send + Sync + 'static>;
+pub trait UncapturedErrorHandler: Fn(Error) + Send + Sync + 'static {}
+impl<T> UncapturedErrorHandler for T where T: Fn(Error) + Send + Sync + 'static {}
+
+type ErrorHandler = Arc<dyn UncapturedErrorHandler>;
 static UNCAPTURED_ERROR_HANDLER: Mutex<Option<ErrorHandler>> = Mutex::new(None);
 
 fn make_error(ty: sys::WGPUErrorType, message: String) -> Error {
-    let source: ErrorSource = Arc::new(std::io::Error::other(message.clone()));
+    let source: ErrorSource = Box::new(std::io::Error::other(message.clone()));
     match ty {
         x if x == sys::WGPUErrorType_OutOfMemory => Error::OutOfMemory { source },
         x if x == sys::WGPUErrorType_Internal => Error::Internal { source, description: message },
@@ -413,7 +472,7 @@ unsafe extern "C" fn uncaptured_error_cb(
     let error = make_error(ty, from_sv(message));
     let handler = UNCAPTURED_ERROR_HANDLER.lock().unwrap().clone();
     match handler {
-        Some(handler) => handler(&error),
+        Some(handler) => handler(error),
         None => log::error!("remote-wgpu: uncaptured error: {error}"),
     }
 }
@@ -508,7 +567,12 @@ impl Device {
 
     pub fn create_shader_module(&self, desc: ShaderModuleDescriptor<'_>) -> ShaderModule {
         let _guard = rt().lock();
-        let ShaderSource::Wgsl(code) = &desc.source;
+        let code: std::borrow::Cow<'_, str> = match &desc.source {
+            ShaderSource::Wgsl(code) => std::borrow::Cow::Borrowed(code.as_ref()),
+            ShaderSource::Naga(module) => std::borrow::Cow::Owned(naga_to_wgsl(module)),
+            _ => panic!("only WGSL and Naga IR shader sources reach the remote backend"),
+        };
+        let code = code.as_ref();
         let mut wgsl: sys::WGPUShaderSourceWGSL = unsafe { std::mem::zeroed() };
         wgsl.chain.sType = sys::WGPUSType_ShaderSourceWGSL;
         wgsl.code = sv_str(code);
@@ -519,12 +583,26 @@ impl Device {
         ShaderModule { inner: Arc::new(OwnedShaderModule(raw)) }
     }
 
+    /// The remote backend always ships shaders to a validating browser, so
+    /// runtime checks cannot actually be skipped; this is create_shader_module.
+    ///
+    /// # Safety
+    ///
+    /// Always safe here; the browser validates every shader regardless.
+    pub unsafe fn create_shader_module_trusted(
+        &self,
+        desc: ShaderModuleDescriptor<'_>,
+        _runtime_checks: ShaderRuntimeChecks,
+    ) -> ShaderModule {
+        self.create_shader_module(desc)
+    }
+
     pub fn create_command_encoder(&self, desc: &CommandEncoderDescriptor<'_>) -> CommandEncoder {
         let _guard = rt().lock();
         let mut raw_desc: sys::WGPUCommandEncoderDescriptor = unsafe { std::mem::zeroed() };
         raw_desc.label = sv(desc.label);
         let raw = unsafe { sys::wgpuDeviceCreateCommandEncoder(self.raw(), &raw_desc) };
-        CommandEncoder { raw, finished: false }
+        CommandEncoder { raw, finished: false, mappings: Vec::new() }
     }
 
     pub fn create_buffer(&self, desc: &BufferDescriptor<'_>) -> Buffer {
@@ -713,6 +791,7 @@ impl Device {
                     | BindingResource::TextureViewArray(_) => {
                         panic!("binding arrays are not available over remote WebGPU")
                     }
+                    _ => panic!("unsupported binding resource over remote WebGPU"),
                 }
                 raw
             })
@@ -761,8 +840,8 @@ impl Device {
             .iter()
             .map(|buffer| {
                 buffer
+                    .attributes
                     .iter()
-                    .flat_map(|buffer| buffer.attributes)
                     .map(|attr| {
                         let mut raw: sys::WGPUVertexAttribute = unsafe { std::mem::zeroed() };
                         raw.format = map_vertex_format(attr.format);
@@ -779,15 +858,11 @@ impl Device {
             .iter()
             .zip(&vertex_attributes)
             .map(|(buffer, attrs)| {
-                // A vertex buffer slot is empty when the step mode is
-                // Undefined and there are no attributes.
                 let mut raw: sys::WGPUVertexBufferLayout = unsafe { std::mem::zeroed() };
-                if let Some(buffer) = buffer {
-                    raw.stepMode = map_vertex_step_mode(buffer.step_mode);
-                    raw.arrayStride = buffer.array_stride;
-                    raw.attributeCount = attrs.len();
-                    raw.attributes = attrs.as_ptr();
-                }
+                raw.stepMode = map_vertex_step_mode(buffer.step_mode);
+                raw.arrayStride = buffer.array_stride;
+                raw.attributeCount = attrs.len();
+                raw.attributes = attrs.as_ptr();
                 raw
             })
             .collect();
@@ -938,7 +1013,7 @@ impl Device {
     pub fn create_render_bundle_encoder<'a>(
         &self,
         desc: &RenderBundleEncoderDescriptor<'_>,
-    ) -> Result<RenderBundleEncoder<'a>, CreateRenderBundleEncoderError> {
+    ) -> RenderBundleEncoder<'a> {
         let _guard = rt().lock();
         let formats: Vec<sys::WGPUTextureFormat> = desc
             .color_formats
@@ -962,7 +1037,7 @@ impl Device {
             raw_desc.stencilReadOnly = bool32(ds.stencil_read_only);
         }
         let raw = unsafe { sys::wgpuDeviceCreateRenderBundleEncoder(self.raw(), &raw_desc) };
-        Ok(RenderBundleEncoder { raw, _marker: PhantomData })
+        RenderBundleEncoder { raw, _marker: PhantomData }
     }
 
     pub fn push_error_scope(&self, filter: ErrorFilter) -> ErrorScopeGuard {
@@ -971,7 +1046,7 @@ impl Device {
         ErrorScopeGuard { device: self.clone() }
     }
 
-    pub fn on_uncaptured_error(&self, handler: Arc<dyn Fn(&Error) + Send + Sync + 'static>) {
+    pub fn on_uncaptured_error(&self, handler: Arc<dyn UncapturedErrorHandler>) {
         *UNCAPTURED_ERROR_HANDLER.lock().unwrap() = Some(handler);
     }
 
@@ -986,12 +1061,6 @@ impl Device {
 
     pub fn start_capture(&self) {}
     pub fn stop_capture(&self) {}
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum DeviceLostReason {
-    Unknown,
-    Destroyed,
 }
 
 fn map_constants(constants: &[(&str, f64)]) -> Vec<sys::WGPUConstantEntry> {
@@ -1100,9 +1169,9 @@ impl Queue {
         buffer: &Buffer,
         offset: BufferAddress,
         size: BufferSize,
-    ) -> Option<QueueWriteBufferView<'_>> {
+    ) -> Option<QueueWriteBufferView> {
         Some(QueueWriteBufferView {
-            queue: self,
+            queue: self.clone(),
             buffer: buffer.clone(),
             offset,
             data: vec![0; size.get() as usize],
@@ -1139,6 +1208,14 @@ impl Queue {
         let raws: Vec<sys::WGPUCommandBuffer> = buffers.iter().map(|b| b.inner.0).collect();
         let _guard = rt().lock();
         unsafe { sys::wgpuQueueSubmit(self.raw(), raws.len(), raws.as_ptr()) };
+        for buffer in &buffers {
+            for mapping in buffer.mappings.lock().unwrap().drain(..) {
+                mapping
+                    .buffer
+                    .slice(mapping.offset..mapping.offset + mapping.size)
+                    .map_async(mapping.mode, mapping.callback);
+            }
+        }
         SubmissionIndex(0)
     }
 
@@ -1176,27 +1253,45 @@ impl Queue {
     }
 }
 
-pub struct QueueWriteBufferView<'a> {
-    queue: &'a Queue,
+pub struct QueueWriteBufferView {
+    queue: Queue,
     buffer: Buffer,
     offset: BufferAddress,
     data: Vec<u8>,
 }
 
-impl Deref for QueueWriteBufferView<'_> {
+impl QueueWriteBufferView {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    pub fn slice<'a, S: RangeBounds<usize>>(&'a mut self, bounds: S) -> WriteOnly<'a, [u8]> {
+        WriteOnly::from_mut(&mut self.data[(bounds.start_bound().cloned(), bounds.end_bound().cloned())])
+    }
+
+    pub fn copy_from_slice(&mut self, src: &[u8]) {
+        self.data.copy_from_slice(src);
+    }
+}
+
+impl Deref for QueueWriteBufferView {
     type Target = [u8];
     fn deref(&self) -> &[u8] {
         &self.data
     }
 }
 
-impl DerefMut for QueueWriteBufferView<'_> {
+impl DerefMut for QueueWriteBufferView {
     fn deref_mut(&mut self) -> &mut [u8] {
         &mut self.data
     }
 }
 
-impl Drop for QueueWriteBufferView<'_> {
+impl Drop for QueueWriteBufferView {
     fn drop(&mut self) {
         self.queue.write_buffer(&self.buffer, self.offset, &self.data);
     }
@@ -1286,33 +1381,26 @@ impl Buffer {
         self.slice(bounds).map_async(mode, callback)
     }
 
-    pub fn get_mapped_range<S: RangeBounds<BufferAddress>>(
-        &self,
-        bounds: S,
-    ) -> Result<BufferView<'_>, MapRangeError> {
+    pub fn get_mapped_range<S: RangeBounds<BufferAddress>>(&self, bounds: S) -> BufferView<'_> {
         let (offset, size) = resolve_bounds(bounds, self.size);
         let _guard = rt().lock();
         let ptr = unsafe {
             sys::wgpuBufferGetConstMappedRange(self.raw(), offset as usize, size as usize)
         };
-        if ptr.is_null() {
-            return Err(MapRangeError::NotMapped);
-        }
-        Ok(BufferView { _buffer: self.clone(), ptr: ptr as *const u8, len: size as usize, _marker: PhantomData })
+        assert!(!ptr.is_null(), "buffer range is not mapped");
+        BufferView { _buffer: self.clone(), ptr: ptr as *const u8, len: size as usize, _marker: PhantomData }
     }
 
     pub fn get_mapped_range_mut<S: RangeBounds<BufferAddress>>(
         &self,
         bounds: S,
-    ) -> Result<BufferViewMut<'_>, MapRangeError> {
+    ) -> BufferViewMut<'_> {
         let (offset, size) = resolve_bounds(bounds, self.size);
         let _guard = rt().lock();
         let ptr =
             unsafe { sys::wgpuBufferGetMappedRange(self.raw(), offset as usize, size as usize) };
-        if ptr.is_null() {
-            return Err(MapRangeError::NotMapped);
-        }
-        Ok(BufferViewMut { _buffer: self.clone(), ptr: ptr as *mut u8, len: size as usize, _marker: PhantomData })
+        assert!(!ptr.is_null(), "buffer range is not mapped for writing");
+        BufferViewMut { _buffer: self.clone(), ptr: ptr as *mut u8, len: size as usize, _marker: PhantomData }
     }
 
     pub fn unmap(&self) {
@@ -1333,6 +1421,15 @@ pub struct BufferSlice<'a> {
     size: BufferAddress,
 }
 
+impl std::fmt::Debug for BufferSlice<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BufferSlice")
+            .field("offset", &self.offset)
+            .field("size", &self.size)
+            .finish()
+    }
+}
+
 impl<'a> BufferSlice<'a> {
     pub fn buffer(&self) -> &'a Buffer {
         self.buffer
@@ -1342,8 +1439,8 @@ impl<'a> BufferSlice<'a> {
         self.offset
     }
 
-    pub fn size(&self) -> BufferAddress {
-        self.size
+    pub fn size(&self) -> BufferSize {
+        BufferSize::new(self.size).expect("zero-sized buffer slice")
     }
 
     pub fn slice<S: RangeBounds<BufferAddress>>(&self, bounds: S) -> BufferSlice<'a> {
@@ -1387,7 +1484,7 @@ impl<'a> BufferSlice<'a> {
         };
     }
 
-    pub fn get_mapped_range(&self) -> Result<BufferView<'a>, MapRangeError> {
+    pub fn get_mapped_range(&self) -> BufferView<'a> {
         let _guard = rt().lock();
         let ptr = unsafe {
             sys::wgpuBufferGetConstMappedRange(
@@ -1396,13 +1493,11 @@ impl<'a> BufferSlice<'a> {
                 self.size as usize,
             )
         };
-        if ptr.is_null() {
-            return Err(MapRangeError::NotMapped);
-        }
-        Ok(BufferView { _buffer: self.buffer.clone(), ptr: ptr as *const u8, len: self.size as usize, _marker: PhantomData })
+        assert!(!ptr.is_null(), "buffer range is not mapped");
+        BufferView { _buffer: self.buffer.clone(), ptr: ptr as *const u8, len: self.size as usize, _marker: PhantomData }
     }
 
-    pub fn get_mapped_range_mut(&self) -> Result<BufferViewMut<'a>, MapRangeError> {
+    pub fn get_mapped_range_mut(&self) -> BufferViewMut<'a> {
         let _guard = rt().lock();
         let ptr = unsafe {
             sys::wgpuBufferGetMappedRange(
@@ -1411,10 +1506,8 @@ impl<'a> BufferSlice<'a> {
                 self.size as usize,
             )
         };
-        if ptr.is_null() {
-            return Err(MapRangeError::NotMapped);
-        }
-        Ok(BufferViewMut { _buffer: self.buffer.clone(), ptr: ptr as *mut u8, len: self.size as usize, _marker: PhantomData })
+        assert!(!ptr.is_null(), "buffer range is not mapped for writing");
+        BufferViewMut { _buffer: self.buffer.clone(), ptr: ptr as *mut u8, len: self.size as usize, _marker: PhantomData }
     }
 }
 
@@ -1450,6 +1543,13 @@ pub struct BufferViewMut<'a> {
 
 unsafe impl Send for BufferViewMut<'_> {}
 unsafe impl Sync for BufferViewMut<'_> {}
+
+impl BufferViewMut<'_> {
+    pub fn slice<'b, S: RangeBounds<usize>>(&'b mut self, bounds: S) -> WriteOnly<'b, [u8]> {
+        let all: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) };
+        WriteOnly::from_mut(&mut all[(bounds.start_bound().cloned(), bounds.end_bound().cloned())])
+    }
+}
 
 impl Deref for BufferViewMut<'_> {
     type Target = [u8];
@@ -1606,16 +1706,6 @@ impl TextureView {
     }
 }
 
-#[derive(Debug)]
-pub struct CreateRenderBundleEncoderError(pub(crate) String);
-
-impl std::fmt::Display for CreateRenderBundleEncoderError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "creating a render bundle encoder failed: {}", self.0)
-    }
-}
-impl std::error::Error for CreateRenderBundleEncoderError {}
-
 impl std::fmt::Debug for TextureView {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TextureView").finish()
@@ -1668,7 +1758,26 @@ macro_rules! simple_handle {
 simple_handle!(BindGroupLayout, OwnedBindGroupLayout);
 simple_handle!(PipelineLayout, OwnedPipelineLayout);
 simple_handle!(ShaderModule, OwnedShaderModule);
-simple_handle!(CommandBuffer, OwnedCommandBuffer);
+#[derive(Clone)]
+pub struct CommandBuffer {
+    pub(crate) inner: Arc<OwnedCommandBuffer>,
+    /// Buffer mappings requested with `map_buffer_on_submit`, started by
+    /// `Queue::submit` right after the buffer is submitted.
+    pub(crate) mappings: Arc<Mutex<Vec<DeferredBufferMapping>>>,
+}
+impl std::fmt::Debug for CommandBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CommandBuffer").finish()
+    }
+}
+
+pub(crate) struct DeferredBufferMapping {
+    pub buffer: Buffer,
+    pub mode: MapMode,
+    pub offset: BufferAddress,
+    pub size: BufferAddress,
+    pub callback: Box<dyn FnOnce(Result<(), BufferAsyncError>) + Send + 'static>,
+}
 simple_handle!(RenderBundle, OwnedRenderBundle);
 simple_handle!(QuerySet, OwnedQuerySet);
 
@@ -1724,6 +1833,7 @@ impl ComputePipeline {
 pub struct CommandEncoder {
     raw: sys::WGPUCommandEncoder,
     finished: bool,
+    mappings: Vec<DeferredBufferMapping>,
 }
 
 unsafe impl Send for CommandEncoder {}
@@ -1761,7 +1871,30 @@ impl CommandEncoder {
         desc.label = sv(None);
         let raw = unsafe { sys::wgpuCommandEncoderFinish(self.raw, &desc) };
         self.finished = true;
-        CommandBuffer { inner: Arc::new(OwnedCommandBuffer(raw)) }
+        CommandBuffer {
+            inner: Arc::new(OwnedCommandBuffer(raw)),
+            mappings: Arc::new(Mutex::new(std::mem::take(&mut self.mappings))),
+        }
+    }
+
+    /// Registers a buffer to be mapped once this encoder's commands are
+    /// submitted; the callback fires from the websocket reader thread when
+    /// the map completes.
+    pub fn map_buffer_on_submit<S: RangeBounds<BufferAddress>>(
+        &mut self,
+        buffer: &Buffer,
+        mode: MapMode,
+        bounds: S,
+        callback: impl FnOnce(Result<(), BufferAsyncError>) + Send + 'static,
+    ) {
+        let (offset, size) = resolve_bounds(bounds, buffer.size());
+        self.mappings.push(DeferredBufferMapping {
+            buffer: buffer.clone(),
+            mode,
+            offset,
+            size,
+            callback: Box::new(callback),
+        });
     }
 
     pub fn begin_render_pass<'encoder>(
@@ -1888,8 +2021,9 @@ impl CommandEncoder {
         source_offset: BufferAddress,
         destination: &Buffer,
         destination_offset: BufferAddress,
-        copy_size: BufferAddress,
+        copy_size: impl Into<Option<BufferAddress>>,
     ) {
+        let copy_size = copy_size.into().unwrap_or(source.size() - source_offset);
         let _guard = rt().lock();
         unsafe {
             sys::wgpuCommandEncoderCopyBufferToBuffer(
@@ -2053,30 +2187,6 @@ impl std::fmt::Debug for RenderPass<'_> {
     }
 }
 
-/// Anything accepted by `set_bind_group`: `&BindGroup` or
-/// `Option<&BindGroup>`.
-pub trait BindGroupArg {
-    fn raw(self) -> sys::WGPUBindGroup;
-}
-
-impl BindGroupArg for &BindGroup {
-    fn raw(self) -> sys::WGPUBindGroup {
-        self.inner.0
-    }
-}
-
-impl BindGroupArg for Option<&BindGroup> {
-    fn raw(self) -> sys::WGPUBindGroup {
-        self.map(|bg| bg.inner.0).unwrap_or(std::ptr::null_mut())
-    }
-}
-
-impl BindGroupArg for &Option<BindGroup> {
-    fn raw(self) -> sys::WGPUBindGroup {
-        self.as_ref().map(|bg| bg.inner.0).unwrap_or(std::ptr::null_mut())
-    }
-}
-
 impl<'encoder> RenderPass<'encoder> {
     pub fn forget_lifetime(mut self) -> RenderPass<'static> {
         let raw = self.raw;
@@ -2094,18 +2204,21 @@ impl<'encoder> RenderPass<'encoder> {
         unsafe { sys::wgpuRenderPassEncoderSetPipeline(self.raw, pipeline.inner.0) };
     }
 
-    pub fn set_bind_group<'a, BG: BindGroupArg>(
+    pub fn set_bind_group<'a, BG>(
         &mut self,
         index: u32,
         bind_group: BG,
         offsets: &[DynamicOffset],
-    ) {
+    ) where
+        Option<&'a BindGroup>: From<BG>,
+    {
+        let bind_group: Option<&BindGroup> = bind_group.into();
         let _guard = rt().lock();
         unsafe {
             sys::wgpuRenderPassEncoderSetBindGroup(
                 self.raw,
                 index,
-                bind_group.raw(),
+                bind_group.map(|bg| bg.inner.0).unwrap_or(std::ptr::null_mut()),
                 offsets.len(),
                 offsets.as_ptr(),
             )
@@ -2214,6 +2327,67 @@ impl<'encoder> RenderPass<'encoder> {
         };
     }
 
+    /// WebGPU has no multi-draw; the remote backend expands it into `count`
+    /// single indirect draws.
+    pub fn multi_draw_indirect(
+        &mut self,
+        indirect_buffer: &Buffer,
+        indirect_offset: BufferAddress,
+        count: u32,
+    ) {
+        for i in 0..count as u64 {
+            self.draw_indirect(indirect_buffer, indirect_offset + i * 16);
+        }
+    }
+
+    /// See [`Self::multi_draw_indirect`].
+    pub fn multi_draw_indexed_indirect(
+        &mut self,
+        indirect_buffer: &Buffer,
+        indirect_offset: BufferAddress,
+        count: u32,
+    ) {
+        for i in 0..count as u64 {
+            self.draw_indexed_indirect(indirect_buffer, indirect_offset + i * 20);
+        }
+    }
+
+    pub fn multi_draw_indirect_count(
+        &mut self,
+        _indirect_buffer: &Buffer,
+        _indirect_offset: BufferAddress,
+        _count_buffer: &Buffer,
+        _count_offset: BufferAddress,
+        _max_count: u32,
+    ) {
+        panic!("multi_draw_indirect_count is not available over remote WebGPU")
+    }
+
+    pub fn multi_draw_indexed_indirect_count(
+        &mut self,
+        _indirect_buffer: &Buffer,
+        _indirect_offset: BufferAddress,
+        _count_buffer: &Buffer,
+        _count_offset: BufferAddress,
+        _max_count: u32,
+    ) {
+        panic!("multi_draw_indexed_indirect_count is not available over remote WebGPU")
+    }
+
+    /// Forwarded to the C library, which warns and drops it: WebGPU has no
+    /// immediates.  Only reachable from paths this backend disables.
+    pub fn set_immediates(&mut self, offset: u32, data: &[u8]) {
+        let _guard = rt().lock();
+        unsafe {
+            sys::wgpuRenderPassEncoderSetImmediates(
+                self.raw,
+                offset,
+                data.as_ptr() as *const c_void,
+                data.len(),
+            )
+        };
+    }
+
     pub fn execute_bundles<'a, I: IntoIterator<Item = &'a RenderBundle>>(&mut self, bundles: I) {
         let raws: Vec<sys::WGPURenderBundle> =
             bundles.into_iter().map(|b| b.inner.0).collect();
@@ -2306,18 +2480,21 @@ impl ComputePass<'_> {
         unsafe { sys::wgpuComputePassEncoderSetPipeline(self.raw, pipeline.inner.0) };
     }
 
-    pub fn set_bind_group<BG: BindGroupArg>(
+    pub fn set_bind_group<'a, BG>(
         &mut self,
         index: u32,
         bind_group: BG,
         offsets: &[DynamicOffset],
-    ) {
+    ) where
+        Option<&'a BindGroup>: From<BG>,
+    {
+        let bind_group: Option<&BindGroup> = bind_group.into();
         let _guard = rt().lock();
         unsafe {
             sys::wgpuComputePassEncoderSetBindGroup(
                 self.raw,
                 index,
-                bind_group.raw(),
+                bind_group.map(|bg| bg.inner.0).unwrap_or(std::ptr::null_mut()),
                 offsets.len(),
                 offsets.as_ptr(),
             )
@@ -2342,6 +2519,27 @@ impl ComputePass<'_> {
                 indirect_offset,
             )
         };
+    }
+
+    /// See [`RenderPass::set_immediates`].
+    pub fn set_immediates(&mut self, offset: u32, data: &[u8]) {
+        let _guard = rt().lock();
+        unsafe {
+            sys::wgpuComputePassEncoderSetImmediates(
+                self.raw,
+                offset,
+                data.as_ptr() as *const c_void,
+                data.len(),
+            )
+        };
+    }
+
+    pub fn begin_pipeline_statistics_query(&mut self, _query_set: &QuerySet, _query_index: u32) {
+        panic!("pipeline statistics queries are not available in WebGPU")
+    }
+
+    pub fn end_pipeline_statistics_query(&mut self) {
+        panic!("pipeline statistics queries are not available in WebGPU")
     }
 
     pub fn insert_debug_marker(&mut self, label: &str) {
@@ -2398,18 +2596,21 @@ impl RenderBundleEncoder<'_> {
         unsafe { sys::wgpuRenderBundleEncoderSetPipeline(self.raw, pipeline.inner.0) };
     }
 
-    pub fn set_bind_group<BG: BindGroupArg>(
+    pub fn set_bind_group<'a, BG>(
         &mut self,
         index: u32,
         bind_group: BG,
         offsets: &[DynamicOffset],
-    ) {
+    ) where
+        Option<&'a BindGroup>: From<BG>,
+    {
+        let bind_group: Option<&BindGroup> = bind_group.into();
         let _guard = rt().lock();
         unsafe {
             sys::wgpuRenderBundleEncoderSetBindGroup(
                 self.raw,
                 index,
-                bind_group.raw(),
+                bind_group.map(|bg| bg.inner.0).unwrap_or(std::ptr::null_mut()),
                 offsets.len(),
                 offsets.as_ptr(),
             )
@@ -2595,7 +2796,6 @@ impl<'window> Surface<'window> {
             desired_maximum_frame_latency: 2,
             alpha_mode: CompositeAlphaMode::Auto,
             view_formats: vec![],
-            color_space: SurfaceColorSpace::Auto,
         })
     }
 
@@ -2662,4 +2862,16 @@ impl<'window> Surface<'window> {
             _ => CurrentSurfaceTexture::Lost,
         }
     }
+}
+
+
+/// Serializes a Naga IR module back to WGSL for the browser, since the wire
+/// protocol only carries WGSL source.
+fn naga_to_wgsl(module: &naga::Module) -> String {
+    use naga::valid::{Capabilities, ValidationFlags, Validator};
+    let info = Validator::new(ValidationFlags::empty(), Capabilities::all())
+        .validate(module)
+        .expect("Naga IR shader failed validation before WGSL serialization");
+    naga::back::wgsl::write_string(module, &info, naga::back::wgsl::WriterFlags::empty())
+        .expect("failed to write Naga IR module as WGSL")
 }

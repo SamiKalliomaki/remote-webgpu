@@ -30,6 +30,9 @@ pub(crate) fn bool32(value: bool) -> sys::WGPUBool {
 pub(crate) fn map_texture_format(format: TextureFormat) -> sys::WGPUTextureFormat {
     use TextureFormat as F;
     match format {
+        F::R64Uint | F::NV12 | F::P010 => {
+            panic!("texture format {format:?} is not available over remote WebGPU")
+        }
         F::R8Unorm => sys::WGPUTextureFormat_R8Unorm,
         F::R8Snorm => sys::WGPUTextureFormat_R8Snorm,
         F::R8Uint => sys::WGPUTextureFormat_R8Uint,
@@ -519,6 +522,7 @@ pub(crate) fn map_load_op<V>(op: &LoadOp<V>) -> sys::WGPULoadOp {
     match op {
         LoadOp::Clear(_) => sys::WGPULoadOp_Clear,
         LoadOp::Load => sys::WGPULoadOp_Load,
+        LoadOp::DontCare(_) => sys::WGPULoadOp_Load,
     }
 }
 
@@ -604,11 +608,7 @@ pub(crate) const FEATURE_PAIRS: &[(Features, sys::WGPUFeatureName)] = &[
     (Features::FLOAT32_BLENDABLE, sys::WGPUFeatureName_Float32Blendable),
     (Features::CLIP_DISTANCES, sys::WGPUFeatureName_ClipDistances),
     (Features::DUAL_SOURCE_BLENDING, sys::WGPUFeatureName_DualSourceBlending),
-    (Features::SUBGROUPS, sys::WGPUFeatureName_Subgroups),
-    (Features::TEXTURE_FORMATS_TIER1, sys::WGPUFeatureName_TextureFormatsTier1),
-    (Features::TEXTURE_FORMATS_TIER2, sys::WGPUFeatureName_TextureFormatsTier2),
     (Features::PRIMITIVE_INDEX, sys::WGPUFeatureName_PrimitiveIndex),
-    (Features::TEXTURE_COMPONENT_SWIZZLE, sys::WGPUFeatureName_TextureComponentSwizzle),
 ];
 
 pub(crate) fn map_features(features: Features) -> Vec<sys::WGPUFeatureName> {
@@ -636,7 +636,6 @@ pub(crate) fn map_limits(limits: &Limits) -> sys::WGPULimits {
     out.maxTextureDimension3D = limits.max_texture_dimension_3d;
     out.maxTextureArrayLayers = limits.max_texture_array_layers;
     out.maxBindGroups = limits.max_bind_groups;
-    out.maxBindGroupsPlusVertexBuffers = limits.max_bind_groups_plus_vertex_buffers;
     out.maxBindingsPerBindGroup = limits.max_bindings_per_bind_group;
     out.maxDynamicUniformBuffersPerPipelineLayout =
         limits.max_dynamic_uniform_buffers_per_pipeline_layout;
@@ -674,7 +673,6 @@ pub(crate) fn unmap_limits(limits: &sys::WGPULimits) -> Limits {
     out.max_texture_dimension_3d = limits.maxTextureDimension3D;
     out.max_texture_array_layers = limits.maxTextureArrayLayers;
     out.max_bind_groups = limits.maxBindGroups;
-    out.max_bind_groups_plus_vertex_buffers = limits.maxBindGroupsPlusVertexBuffers;
     out.max_bindings_per_bind_group = limits.maxBindingsPerBindGroup;
     out.max_dynamic_uniform_buffers_per_pipeline_layout =
         limits.maxDynamicUniformBuffersPerPipelineLayout;

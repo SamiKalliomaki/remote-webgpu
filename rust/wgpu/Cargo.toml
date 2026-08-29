@@ -11,6 +11,9 @@ remote-wgpu-sys = { path = "../remote-wgpu-sys" }
 remote-wgpu-runtime = { path = "../remote-wgpu-runtime" }
 bitflags = "2"
 log = "0.4"
+wgpu-types = { version = "29.0.4", features = ["trace"] }
+naga = { version = "29.0.4", features = ["wgsl-out"] }
+raw-window-handle = "0.6"
 
 # Feature names accepted for compatibility with the real wgpu manifest; the
 # remote backend always forwards everything, so they are all no-ops.

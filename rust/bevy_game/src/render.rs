@@ -73,7 +73,7 @@ impl Renderer {
     /// Claims the window's client GPU and builds the pipeline on it.
     /// With `capture`, frames can be read back with [`Renderer::capture`].
     pub fn new(window: Arc<Window>, capture: bool) -> Self {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let surface = instance.create_surface(window.clone()).expect("create surface");
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             // Pairs this window's canvas with this window's client GPU.
@@ -128,11 +128,11 @@ impl Renderer {
                 module: &shader,
                 entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
-                buffers: &[Some(wgpu::VertexBufferLayout {
+                buffers: &[wgpu::VertexBufferLayout {
                     array_stride: QUAD_SIZE,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &attributes,
-                })],
+                }],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -361,7 +361,7 @@ impl Renderer {
             .poll(wgpu::PollType::wait_indefinitely())
             .expect("poll for readback");
 
-        let data = buffer.get_mapped_range(..).expect("mapped readback");
+        let data = buffer.get_mapped_range(..);
         let swap_channels = self.config.format == wgpu::TextureFormat::Bgra8Unorm
             || self.config.format == wgpu::TextureFormat::Bgra8UnormSrgb;
         let mut ppm = format!("P6\n{width} {height}\n255\n").into_bytes();

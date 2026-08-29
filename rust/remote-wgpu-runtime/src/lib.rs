@@ -45,6 +45,18 @@ pub trait HasRemoteClient {
     fn remote_client(&self) -> Arc<Client>;
 }
 
+impl HasRemoteClient for Client {
+    fn remote_client(&self) -> Arc<Client> {
+        // Every Client the runtime hands out lives in the registry's Arcs,
+        // so a plain reference can be re-wrapped by looking it up again.
+        runtime()
+            .clients()
+            .into_iter()
+            .find(|client| client.id() == self.id())
+            .expect("Client is not registered with the runtime")
+    }
+}
+
 impl<T: HasRemoteClient> HasRemoteClient for Arc<T> {
     fn remote_client(&self) -> Arc<Client> {
         (**self).remote_client()
@@ -316,7 +328,7 @@ impl Runtime {
             .spawn(move || {
                 for message in rx {
                     if write_ws
-                        .send(tungstenite::Message::Binary(message.into()))
+                        .send(tungstenite::Message::Binary(message))
                         .is_err()
                     {
                         break;

@@ -1,0 +1,29 @@
+[package]
+name = "bevy_pbr_game"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+bevy = { version = "0.19", default-features = false, features = [
+    "std",
+    "async_executor",
+    "multi_threaded",
+    "bevy_log",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_light",
+    "tonemapping_luts",
+    "ktx2",
+    "zstd_rust",
+    "png",
+    "debug",
+] }
+wgpu = { path = "../wgpu" }
+winit = { path = "../winit" }
+remote-wgpu-runtime = { path = "../remote-wgpu-runtime" }
+raw-window-handle = "0.6"
+pollster = "0.4"

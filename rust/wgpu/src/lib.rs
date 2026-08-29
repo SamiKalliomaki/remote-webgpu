@@ -8,13 +8,15 @@
 
 mod api;
 mod convert;
-mod limits;
 mod types;
 
 pub mod util;
 
 pub use api::*;
 pub use types::*;
+
+/// Re-export of the real `wgpu-types` crate, as `wgpu::wgt`.
+pub use wgpu_types as wgt;
 
 /// Creates a [`ShaderModuleDescriptor`] from a WGSL file path relative to
 /// the calling file.

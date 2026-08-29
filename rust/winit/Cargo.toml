@@ -10,3 +10,4 @@ description = "winit-compatible event loop that runs a remote_webgpu websocket s
 remote-wgpu-sys = { path = "../remote-wgpu-sys" }
 remote-wgpu-runtime = { path = "../remote-wgpu-runtime" }
 log = "0.4"
+raw-window-handle = "0.6"

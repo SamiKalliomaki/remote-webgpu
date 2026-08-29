@@ -4,16 +4,9 @@ use std::future::Future;
 
 use crate::*;
 
-/// Order in which texture data is laid out in memory for
-/// [`DeviceExt::create_texture_with_data`].
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
-pub enum TextureDataOrder {
-    #[default]
-    LayerMajor,
-    MipMajor,
-}
+pub use wgpu_types::{DispatchIndirectArgs, DrawIndexedIndirectArgs, DrawIndirectArgs, TextureDataOrder};
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct BufferInitDescriptor<'a> {
     pub label: Label<'a>,
     pub contents: &'a [u8],
@@ -52,7 +45,7 @@ impl DeviceExt for Device {
             mapped_at_creation: true,
         });
         {
-            let mut view = buffer.get_mapped_range_mut(0..unpadded_size).unwrap();
+            let mut view = buffer.get_mapped_range_mut(0..unpadded_size);
             view.copy_from_slice(desc.contents);
         }
         buffer.unmap();
@@ -78,18 +71,10 @@ impl DeviceExt for Device {
             .expect("copying to depth textures is unsupported");
         let layer_iterations = desc.array_layer_count();
 
-        let outer_iteration;
-        let inner_iteration;
-        match order {
-            TextureDataOrder::LayerMajor => {
-                outer_iteration = layer_iterations;
-                inner_iteration = desc.mip_level_count;
-            }
-            TextureDataOrder::MipMajor => {
-                outer_iteration = desc.mip_level_count;
-                inner_iteration = layer_iterations;
-            }
-        }
+        let (outer_iteration, inner_iteration) = match order {
+            TextureDataOrder::LayerMajor => (layer_iterations, desc.mip_level_count),
+            TextureDataOrder::MipMajor => (desc.mip_level_count, layer_iterations),
+        };
 
         let mut binary_offset = 0;
         for outer in 0..outer_iteration {
@@ -201,7 +186,7 @@ impl StagingBelt {
             mapped_at_creation: true,
         });
         encoder.copy_buffer_to_buffer(&staging, 0, target, offset, size.get());
-        let view = staging.get_mapped_range_mut(..).unwrap().detach();
+        let view = staging.get_mapped_range_mut(..).detach();
         self.pending.push(staging);
         view
     }

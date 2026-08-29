@@ -531,6 +531,18 @@ pub mod event_loop {
         pub(crate) _priv: (),
     }
 
+    impl raw_window_handle::HasDisplayHandle for OwnedDisplayHandle {
+        fn display_handle(
+            &self,
+        ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+            let raw = raw_window_handle::RawDisplayHandle::Web(
+                raw_window_handle::WebDisplayHandle::new(),
+            );
+            // SAFETY: there is no underlying display object to outlive.
+            Ok(unsafe { raw_window_handle::DisplayHandle::borrow_raw(raw) })
+        }
+    }
+
     #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
     pub enum ControlFlow {
         Poll,
