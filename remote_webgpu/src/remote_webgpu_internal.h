@@ -39,7 +39,8 @@ typedef struct RemoteAdapter {
     uint32_t next_id;
     /* Next future id to hand out (0 is reserved for "none"). */
     uint64_t next_future_id;
-    /* Latest canvas size reported by the client (ClientHello/CanvasResize),
+    /* Latest canvas size reported by the client (ClientHello or a
+     * canvas-resize event),
      * in device pixels.  0 until the client reports one. */
     uint32_t canvas_width;
     uint32_t canvas_height;
@@ -49,6 +50,9 @@ typedef struct RemoteAdapter {
     char *device;
     char *description;
     int is_fallback;
+    /* Receives client events (resize, user-defined); zeroed until the app
+     * registers one via wgpuRemoteAdapterSetEventCallback(). */
+    WGPURemoteEventCallbackInfo event_callback;
     /* Pending vsync wait (one at a time); fires on PresentDone. */
     WGPURemoteVsyncCallbackInfo vsync_callback;
     int vsync_pending;

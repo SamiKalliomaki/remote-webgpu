@@ -159,6 +159,46 @@ static void handle_map_buffer_data(RemoteAdapter *adapter,
         callback.callback(status, message, callback.userdata1, callback.userdata2);
 }
 
+static void handle_event(RemoteAdapter *adapter, const RemoteWebgpu__Event *event)
+{
+    WGPURemoteEvent out;
+    memset(&out, 0, sizeof out);
+
+    switch (event->kind_case) {
+    case REMOTE_WEBGPU__EVENT__KIND_CANVAS_RESIZE:
+        /* Absorbed into the adapter state either way, so the size is
+         * queryable even without a registered callback. */
+        adapter->canvas_width = event->canvas_resize->width;
+        adapter->canvas_height = event->canvas_resize->height;
+        out.type = WGPURemoteEventType_CanvasResize;
+        out.width = event->canvas_resize->width;
+        out.height = event->canvas_resize->height;
+        break;
+
+    case REMOTE_WEBGPU__EVENT__KIND_USER:
+        out.type = WGPURemoteEventType_User;
+        out.name = event->user->name ? event->user->name : "";
+        out.payload = event->user->payload.data;
+        out.payload_size = event->user->payload.len;
+        break;
+
+    default:
+        fprintf(stderr, "remote_webgpu: unknown event kind %d from client\n",
+                (int)event->kind_case);
+        return;
+    }
+
+    WGPURemoteEventCallbackInfo callback = adapter->event_callback;
+    if (callback.callback)
+        callback.callback(&out, callback.userdata1, callback.userdata2);
+}
+
+void wgpuRemoteAdapterSetEventCallback(WGPUAdapter adapter,
+                                       WGPURemoteEventCallbackInfo callbackInfo)
+{
+    ((RemoteAdapter *)adapter)->event_callback = callbackInfo;
+}
+
 void wgpuRemoteAdapterReceiveData(WGPUAdapter adapter, void const *data, size_t size)
 {
     RemoteAdapter *self = (RemoteAdapter *)adapter;
@@ -175,9 +215,8 @@ void wgpuRemoteAdapterReceiveData(WGPUAdapter adapter, void const *data, size_t 
         handle_client_hello(self, envelope->client_hello);
         break;
 
-    case REMOTE_WEBGPU__ENVELOPE__KIND_CANVAS_RESIZE:
-        self->canvas_width = envelope->canvas_resize->width;
-        self->canvas_height = envelope->canvas_resize->height;
+    case REMOTE_WEBGPU__ENVELOPE__KIND_EVENT:
+        handle_event(self, envelope->event);
         break;
 
     case REMOTE_WEBGPU__ENVELOPE__KIND_PRESENT_DONE:

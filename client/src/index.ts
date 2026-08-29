@@ -149,6 +149,16 @@ export class RemoteGpuClient {
     this.ws.close();
   }
 
+  /**
+   * Send a user-defined event to the server application.  The name and
+   * payload encoding are a contract between the page and the server (the
+   * examples send "mousemove" with two little-endian float32s); the
+   * library forwards them verbatim.
+   */
+  sendEvent(name: string, payload: Uint8Array = new Uint8Array()): void {
+    this.send({ case: "event", value: { kind: { case: "user", value: { name, payload } } } });
+  }
+
   /** Canvas size in device pixels (what the server should render at). */
   private static canvasSize(canvas: HTMLCanvasElement): { width: number; height: number } {
     const scale = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
@@ -159,9 +169,10 @@ export class RemoteGpuClient {
   }
 
   /**
-   * Tell the server whenever the canvas element changes size.  The server
-   * reacts by reconfiguring the surface, which is what actually resizes
-   * the canvas backing store.
+   * Tell the server whenever the canvas element changes size (a built-in
+   * event).  The server application decides how to react; reconfiguring
+   * the surface is what actually resizes the canvas backing store, so the
+   * canvas keeps its old pixel size until it does.
    */
   private watchCanvasSize(): void {
     const canvas = this.options.canvas;
@@ -173,7 +184,7 @@ export class RemoteGpuClient {
       if (size.width === last.width && size.height === last.height)
         return;
       last = size;
-      this.send({ case: "canvasResize", value: size });
+      this.send({ case: "event", value: { kind: { case: "canvasResize", value: size } } });
     }).observe(canvas);
   }
 

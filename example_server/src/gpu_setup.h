@@ -19,14 +19,6 @@ int gpu_setup(Connection *conn, uint32_t fallback_width, uint32_t fallback_heigh
 /* Reconfigure the surface after a resize.  Safe to call every frame. */
 void gpu_configure_surface(GpuContext *ctx, uint32_t width, uint32_t height);
 
-/*
- * Current size of the client's canvas in device pixels (the size the next
- * frame should be rendered at); ctx->width/height when the client has not
- * reported one.  Resize notifications are picked up while the library
- * waits for present acknowledgements, so this changes between frames.
- */
-void gpu_remote_size(const GpuContext *ctx, uint32_t *width, uint32_t *height);
-
 /* Tear down everything gpu_setup() produced, in reverse order. */
 void gpu_teardown(GpuContext *ctx);
 

@@ -14,7 +14,11 @@ as usual, and the main loop runs against that device.
 
 There is no OS window and no GLFW: the server renders to the connected
 client's canvas, at whatever size the client reports for it (initially in
-its `ClientHello`, later via `CanvasResize` notifications).
+its `ClientHello`, later via canvas-resize events).  Client events --
+resizes and the example client's `"mousemove"` -- are received through
+`wgpuRemoteAdapterSetEventCallback()`; the render loop reconfigures the
+surface on resize and draws a second triangle at the reported mouse
+position.
 
 The `remote_webgpu` library is transport-agnostic: it sends protocol
 messages through a callback the app provides and receives them via

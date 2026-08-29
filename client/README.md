@@ -26,8 +26,12 @@ device in order (an id -> object map mirrors the server's handles), presents
 to the `canvas` passed to `connect()`, answers `Present` with `PresentDone`
 on the next animation frame, and serves buffer readbacks for the server's
 screenshots.  The canvas size (in device pixels) is reported in the
-`ClientHello` and re-reported via `CanvasResize` whenever the element
-changes size, so the server always renders at the right resolution.
+`ClientHello` and re-reported as a canvas-resize `Event` whenever the
+element changes size; the canvas backing store itself is only resized when
+the server reconfigures the surface, so its pixel size always matches what
+the server configured.  `sendEvent(name, payload)` sends a user-defined
+event for the server application to consume (the example client streams
+the pointer position this way).
 
 Commands:
 

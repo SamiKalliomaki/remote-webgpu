@@ -25,9 +25,13 @@ browser tab exposing `navigator.gpu`).
    `requestAnimationFrame`, which paces the server's render loop to the
    client's refresh rate) and `MapBufferRead` waits for `MapBufferData`
    (which is how `--screenshot` reads the frame back over the network).
-   The client dictates the frame size: its canvas size travels in
-   `ClientHello` and, on changes, in `CanvasResize` notifications; the
-   server responds by reconfiguring the surface.
+   The client also sends `Event` notifications: a built-in canvas-resize
+   event and user-defined named events (the example client streams
+   `"mousemove"`).  The server application listens to them via
+   `wgpuRemoteAdapterSetEventCallback()`; on a resize it reconfigures the
+   surface, which is what actually resizes the canvas backing store -- the
+   canvas's pixel size always matches the server's last `ConfigureSurface`.
+   The initial canvas size travels in `ClientHello`.
 
 The subset implemented is exactly what the triangle demo needs: buffer /
 shader / bind group / pipeline creation, one render pass with color
@@ -57,7 +61,8 @@ Open <http://127.0.0.1:8000> (append `?server=ws://host:port` for a
 non-default server).  The page connects and the spinning red triangle the
 server draws appears full-screen on the page's canvas, rendered by the
 browser's GPU, with a live FPS counter in the corner.  Resizing the browser
-window resizes the render.
+window resizes the render, and a small green triangle follows the mouse
+(the pointer position travels as a user-defined event).
 
 This also works fully headless, which is how it is tested:
 

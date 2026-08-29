@@ -33,9 +33,13 @@ static WGPUStringView sv(const char *s)
 
 static const char *kShaderSource =
     "struct Uniforms {\n"
+    "    center : vec2<f32>,\n"  /* clip-space position of the triangle */
     "    angle : f32,\n"
     "    aspect : f32,\n"
-    "    _pad : vec2<f32>,\n"
+    "    color : vec4<f32>,\n"
+    "    scale : f32,\n"
+    "    _pad0 : f32,\n"
+    "    _pad1 : vec2<f32>,\n"
     "};\n"
     "@group(0) @binding(0) var<uniform> u : Uniforms;\n"
     "\n"
@@ -43,13 +47,14 @@ static const char *kShaderSource =
     "fn vs_main(@location(0) pos : vec2<f32>) -> @builtin(position) vec4<f32> {\n"
     "    let s = sin(u.angle);\n"
     "    let c = cos(u.angle);\n"
-    "    let rotated = vec2<f32>(pos.x * c - pos.y * s, pos.x * s + pos.y * c);\n"
-    "    return vec4<f32>(rotated.x / u.aspect, rotated.y, 0.0, 1.0);\n"
+    "    let rotated = vec2<f32>(pos.x * c - pos.y * s, pos.x * s + pos.y * c) * u.scale;\n"
+    "    return vec4<f32>(rotated.x / u.aspect + u.center.x, rotated.y + u.center.y,\n"
+    "                     0.0, 1.0);\n"
     "}\n"
     "\n"
     "@fragment\n"
     "fn fs_main() -> @location(0) vec4<f32> {\n"
-    "    return vec4<f32>(0.75, 0.01, 0.01, 1.0);\n"
+    "    return u.color;\n"
     "}\n";
 
 /* An equilateral triangle centred on the origin. */
@@ -59,11 +64,18 @@ static const float kVertices[] = {
      0.6495f,  -0.375f,
 };
 
+/* Must match the WGSL Uniforms struct above (std140-style layout). */
 typedef struct {
+    float center[2];
     float angle;
     float aspect;
-    float pad[2];
+    float color[4];
+    float scale;
+    float pad[3];
 } Uniforms;
+
+/* One triangle: the big spinning one, and the one under the pointer. */
+enum { TRIANGLE_MAIN, TRIANGLE_MOUSE, TRIANGLE_COUNT };
 
 /* ------------------------------------------------------------------ */
 /* GPU resources owned by the loop (not by the device)                */
@@ -72,9 +84,9 @@ typedef struct {
 typedef struct {
     WGPUShaderModule shader;
     WGPUBuffer vertices;
-    WGPUBuffer uniforms;
+    WGPUBuffer uniforms[TRIANGLE_COUNT];
     WGPUBindGroupLayout bind_group_layout;
-    WGPUBindGroup bind_group;
+    WGPUBindGroup bind_groups[TRIANGLE_COUNT];
     WGPUPipelineLayout pipeline_layout;
     WGPURenderPipeline pipeline;
 } Resources;
@@ -83,9 +95,11 @@ static void resources_destroy(Resources *r)
 {
     if (r->pipeline)           wgpuRenderPipelineRelease(r->pipeline);
     if (r->pipeline_layout)    wgpuPipelineLayoutRelease(r->pipeline_layout);
-    if (r->bind_group)         wgpuBindGroupRelease(r->bind_group);
+    for (int i = 0; i < TRIANGLE_COUNT; ++i)
+        if (r->bind_groups[i])  wgpuBindGroupRelease(r->bind_groups[i]);
     if (r->bind_group_layout)  wgpuBindGroupLayoutRelease(r->bind_group_layout);
-    if (r->uniforms)         { wgpuBufferDestroy(r->uniforms); wgpuBufferRelease(r->uniforms); }
+    for (int i = 0; i < TRIANGLE_COUNT; ++i)
+        if (r->uniforms[i])   { wgpuBufferDestroy(r->uniforms[i]); wgpuBufferRelease(r->uniforms[i]); }
     if (r->vertices)         { wgpuBufferDestroy(r->vertices); wgpuBufferRelease(r->vertices); }
     if (r->shader)             wgpuShaderModuleRelease(r->shader);
     memset(r, 0, sizeof *r);
@@ -118,19 +132,21 @@ static int resources_create(const GpuContext *ctx, Resources *r)
         goto fail;
     wgpuQueueWriteBuffer(ctx->queue, r->vertices, 0, kVertices, sizeof kVertices);
 
-    WGPUBufferDescriptor ub_desc;
-    memset(&ub_desc, 0, sizeof ub_desc);
-    ub_desc.label = sv("uniforms");
-    ub_desc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
-    ub_desc.size = sizeof(Uniforms);
-    r->uniforms = wgpuDeviceCreateBuffer(ctx->device, &ub_desc);
-    if (!r->uniforms)
-        goto fail;
+    for (int i = 0; i < TRIANGLE_COUNT; ++i) {
+        WGPUBufferDescriptor ub_desc;
+        memset(&ub_desc, 0, sizeof ub_desc);
+        ub_desc.label = sv(i == TRIANGLE_MAIN ? "main uniforms" : "mouse uniforms");
+        ub_desc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+        ub_desc.size = sizeof(Uniforms);
+        r->uniforms[i] = wgpuDeviceCreateBuffer(ctx->device, &ub_desc);
+        if (!r->uniforms[i])
+            goto fail;
+    }
 
     WGPUBindGroupLayoutEntry bgl_entry;
     memset(&bgl_entry, 0, sizeof bgl_entry);
     bgl_entry.binding = 0;
-    bgl_entry.visibility = WGPUShaderStage_Vertex;
+    bgl_entry.visibility = WGPUShaderStage_Vertex | WGPUShaderStage_Fragment;
     bgl_entry.buffer.type = WGPUBufferBindingType_Uniform;
     bgl_entry.buffer.minBindingSize = sizeof(Uniforms);
 
@@ -143,21 +159,23 @@ static int resources_create(const GpuContext *ctx, Resources *r)
     if (!r->bind_group_layout)
         goto fail;
 
-    WGPUBindGroupEntry bg_entry;
-    memset(&bg_entry, 0, sizeof bg_entry);
-    bg_entry.binding = 0;
-    bg_entry.buffer = r->uniforms;
-    bg_entry.size = sizeof(Uniforms);
+    for (int i = 0; i < TRIANGLE_COUNT; ++i) {
+        WGPUBindGroupEntry bg_entry;
+        memset(&bg_entry, 0, sizeof bg_entry);
+        bg_entry.binding = 0;
+        bg_entry.buffer = r->uniforms[i];
+        bg_entry.size = sizeof(Uniforms);
 
-    WGPUBindGroupDescriptor bg_desc;
-    memset(&bg_desc, 0, sizeof bg_desc);
-    bg_desc.label = sv("uniform bind group");
-    bg_desc.layout = r->bind_group_layout;
-    bg_desc.entryCount = 1;
-    bg_desc.entries = &bg_entry;
-    r->bind_group = wgpuDeviceCreateBindGroup(ctx->device, &bg_desc);
-    if (!r->bind_group)
-        goto fail;
+        WGPUBindGroupDescriptor bg_desc;
+        memset(&bg_desc, 0, sizeof bg_desc);
+        bg_desc.label = sv("uniform bind group");
+        bg_desc.layout = r->bind_group_layout;
+        bg_desc.entryCount = 1;
+        bg_desc.entries = &bg_entry;
+        r->bind_groups[i] = wgpuDeviceCreateBindGroup(ctx->device, &bg_desc);
+        if (!r->bind_groups[i])
+            goto fail;
+    }
 
     WGPUPipelineLayoutDescriptor pl_desc;
     memset(&pl_desc, 0, sizeof pl_desc);
@@ -350,6 +368,50 @@ static int save_screenshot(const GpuContext *ctx, WGPUTexture texture, const cha
 }
 
 /* ------------------------------------------------------------------ */
+/* client events                                                      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * State fed by the client's events, which fire from inside ctx->pump()
+ * while the loop waits for present acknowledgements.  Resizes are not
+ * applied here: the loop reconfigures the surface at the top of the next
+ * frame, which is what actually resizes the client's canvas.
+ */
+typedef struct {
+    /* Size the next frame should be rendered at, in device pixels. */
+    uint32_t width, height;
+    /* Latest pointer position in device pixels; valid once has_mouse. */
+    int has_mouse;
+    float mouse_x, mouse_y;
+} InputState;
+
+static void on_client_event(const WGPURemoteEvent *event, void *ud1, void *ud2)
+{
+    InputState *input = ud1;
+    (void)ud2;
+
+    switch (event->type) {
+    case WGPURemoteEventType_CanvasResize:
+        input->width = event->width;
+        input->height = event->height;
+        break;
+
+    case WGPURemoteEventType_User:
+        /* "mousemove": two little-endian float32s, device pixels (the
+         * payload encoding is defined by the example client). */
+        if (!strcmp(event->name, "mousemove")
+            && event->payload_size >= 2 * sizeof(float)) {
+            float position[2];
+            memcpy(position, event->payload, sizeof position);
+            input->mouse_x = position[0];
+            input->mouse_y = position[1];
+            input->has_mouse = 1;
+        }
+        break;
+    }
+}
+
+/* ------------------------------------------------------------------ */
 /* the main loop                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -363,6 +425,14 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
     if (resources_create(ctx, &res) != 0)
         return 1;
 
+    /* Listen for the client's events: canvas resizes and the example
+     * client's "mousemove".  They fire from inside ctx->pump(). */
+    InputState input = {0};
+    input.width = ctx->width;
+    input.height = ctx->height;
+    WGPURemoteEventCallbackInfo event_cb = { on_client_event, &input, NULL };
+    wgpuRemoteAdapterSetEventCallback(ctx->adapter, event_cb);
+
     int rc = 0;
     unsigned frames = 0;
     const double start = now_seconds();
@@ -370,11 +440,11 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
     /* Runs until the client disconnects (or opts.max_frames is reached). */
     for (;;) {
         /* The client dictates the frame size: its canvas, in device pixels.
-         * Resize notifications arrive while waiting for present acks. */
-        uint32_t fb_width, fb_height;
-        gpu_remote_size(ctx, &fb_width, &fb_height);
-        if (fb_width != ctx->width || fb_height != ctx->height)
-            gpu_configure_surface(ctx, fb_width, fb_height);
+         * Resize events arrive while waiting for present acks; reconfiguring
+         * the surface here is what resizes the client's canvas, so the two
+         * always match. */
+        if (input.width != ctx->width || input.height != ctx->height)
+            gpu_configure_surface(ctx, input.width, input.height);
 
         WGPUSurfaceTexture frame;
         memset(&frame, 0, sizeof frame);
@@ -384,7 +454,7 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
             /* The swapchain went stale (resize, compositor change): rebuild it. */
             if (frame.texture)
                 wgpuTextureRelease(frame.texture);
-            gpu_configure_surface(ctx, fb_width, fb_height);
+            gpu_configure_surface(ctx, input.width, input.height);
             continue;
         }
         if (frame.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal
@@ -395,11 +465,30 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
             break;
         }
 
+        const float aspect = (float)ctx->width / (float)ctx->height;
+        const float angle = (float)(now_seconds() - start) * 1.5f;
+
         Uniforms uniforms;
-        uniforms.angle = (float)(now_seconds() - start) * 1.5f;
-        uniforms.aspect = (float)fb_width / (float)fb_height;
-        uniforms.pad[0] = uniforms.pad[1] = 0.0f;
-        wgpuQueueWriteBuffer(ctx->queue, res.uniforms, 0, &uniforms, sizeof uniforms);
+        memset(&uniforms, 0, sizeof uniforms);
+        uniforms.angle = angle;
+        uniforms.aspect = aspect;
+        uniforms.scale = 1.0f;
+        uniforms.color[0] = 0.75f; uniforms.color[1] = 0.01f;
+        uniforms.color[2] = 0.01f; uniforms.color[3] = 1.0f;
+        wgpuQueueWriteBuffer(ctx->queue, res.uniforms[TRIANGLE_MAIN], 0,
+                             &uniforms, sizeof uniforms);
+
+        if (input.has_mouse) {
+            /* A small green copy under the pointer: device pixels to clip
+             * space (y flipped). */
+            uniforms.center[0] = 2.0f * input.mouse_x / (float)ctx->width - 1.0f;
+            uniforms.center[1] = 1.0f - 2.0f * input.mouse_y / (float)ctx->height;
+            uniforms.scale = 0.25f;
+            uniforms.color[0] = 0.05f; uniforms.color[1] = 0.65f;
+            uniforms.color[2] = 0.20f; uniforms.color[3] = 1.0f;
+            wgpuQueueWriteBuffer(ctx->queue, res.uniforms[TRIANGLE_MOUSE], 0,
+                                 &uniforms, sizeof uniforms);
+        }
 
         WGPUTextureView view = wgpuTextureCreateView(frame.texture, NULL);
 
@@ -420,9 +509,13 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(ctx->device, NULL);
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &pass_desc);
         wgpuRenderPassEncoderSetPipeline(pass, res.pipeline);
-        wgpuRenderPassEncoderSetBindGroup(pass, 0, res.bind_group, 0, NULL);
         wgpuRenderPassEncoderSetVertexBuffer(pass, 0, res.vertices, 0, sizeof kVertices);
+        wgpuRenderPassEncoderSetBindGroup(pass, 0, res.bind_groups[TRIANGLE_MAIN], 0, NULL);
         wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+        if (input.has_mouse) {
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, res.bind_groups[TRIANGLE_MOUSE], 0, NULL);
+            wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+        }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
 
@@ -462,6 +555,10 @@ int render_run(GpuContext *ctx, const RenderOptions *options)
         if (last_frame)
             break;
     }
+
+    /* `input` is about to go out of scope. */
+    WGPURemoteEventCallbackInfo no_events = {0};
+    wgpuRemoteAdapterSetEventCallback(ctx->adapter, no_events);
 
     resources_destroy(&res);
     return rc;

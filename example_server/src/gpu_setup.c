@@ -95,15 +95,6 @@ void gpu_configure_surface(GpuContext *ctx, uint32_t width, uint32_t height)
     ctx->height = height;
 }
 
-void gpu_remote_size(const GpuContext *ctx, uint32_t *width, uint32_t *height)
-{
-    wgpuRemoteAdapterGetCanvasSize(ctx->adapter, width, height);
-    if (*width == 0 || *height == 0) {
-        *width = ctx->width;
-        *height = ctx->height;
-    }
-}
-
 int gpu_setup(Connection *conn, uint32_t fallback_width, uint32_t fallback_height,
               GpuContext *out)
 {

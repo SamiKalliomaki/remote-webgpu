@@ -39,6 +39,19 @@ try {
         .filter(Boolean).join(" / ") || "(no details exposed)"}`
     : "connected without a local GPU");
   log("connected; the server is driving the local GPU");
+
+  /* Stream the pointer position to the server as a user-defined event:
+   * "mousemove" with the coordinates in device pixels (matching the frame
+   * the server renders) as two little-endian float32s. */
+  canvas.addEventListener("pointermove", (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const scale = devicePixelRatio;
+    const position = new Float32Array([
+      (event.clientX - rect.left) * scale,
+      (event.clientY - rect.top) * scale,
+    ]);
+    client.sendEvent("mousemove", new Uint8Array(position.buffer));
+  });
 } catch (error) {
   log(`failed: ${error instanceof Error ? error.message : String(error)}`);
 }

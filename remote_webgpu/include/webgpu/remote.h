@@ -54,11 +54,63 @@ WGPU_EXPORT WGPUBool wgpuRemoteAdapterIsReady(WGPUAdapter adapter);
 
 /*
  * Latest size of the client's canvas in device pixels, as reported in its
- * ClientHello and any subsequent CanvasResize notifications.  0x0 until the
+ * ClientHello and any subsequent canvas-resize events.  0x0 until the
  * client reports a size.
  */
 WGPU_EXPORT void wgpuRemoteAdapterGetCanvasSize(WGPUAdapter adapter,
                                                 uint32_t *width, uint32_t *height);
+
+/* ------------------------------------------------------------------ */
+/* events                                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Events are notifications from the client: built-in ones (the canvas
+ * changed size) and user-defined ones sent by the client application (a
+ * name plus an opaque payload whose encoding is a contract between the two
+ * applications).  Neither expects a reply.
+ */
+typedef enum WGPURemoteEventType {
+    /* The client's canvas changed physical size.  The canvas keeps its old
+     * pixel size until the application reconfigures the surface, which is
+     * what actually resizes the canvas backing store. */
+    WGPURemoteEventType_CanvasResize = 1,
+    /* A user-defined event from the client application. */
+    WGPURemoteEventType_User = 2,
+} WGPURemoteEventType;
+
+typedef struct WGPURemoteEvent {
+    WGPURemoteEventType type;
+    /* CanvasResize: the new canvas size in device pixels. */
+    uint32_t width;
+    uint32_t height;
+    /* User: NUL-terminated name and opaque payload.  Both point into the
+     * received message and are only valid for the duration of the
+     * callback; copy them to keep them. */
+    const char *name;
+    const void *payload;
+    size_t payload_size;
+} WGPURemoteEvent;
+
+typedef void (*WGPURemoteEventCallback)(const WGPURemoteEvent *event,
+                                        void *userdata1, void *userdata2);
+
+typedef struct WGPURemoteEventCallbackInfo {
+    WGPURemoteEventCallback callback;
+    void *userdata1;
+    void *userdata2;
+} WGPURemoteEventCallbackInfo;
+
+/*
+ * Register the callback that receives client events.  One callback per
+ * adapter; registering again replaces it, and a zeroed info unregisters.
+ * The callback fires from inside wgpuRemoteAdapterReceiveData().  Events
+ * arriving with no callback registered are still absorbed into the state
+ * wgpuRemoteAdapterGetCanvasSize() reports (resizes) or dropped (user
+ * events).
+ */
+WGPU_EXPORT void wgpuRemoteAdapterSetEventCallback(WGPUAdapter adapter,
+                                                   WGPURemoteEventCallbackInfo callbackInfo);
 
 typedef void (*WGPURemoteVsyncCallback)(void *userdata1, void *userdata2);
 
