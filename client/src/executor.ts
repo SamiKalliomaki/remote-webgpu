@@ -142,6 +142,7 @@ export class CommandExecutor {
    * contents are unspecified as far as the server is concerned).
    */
   private surfaceTexture: GPUTexture | null = null;
+  private previousPresent: Promise<void> = Promise.resolve();
 
   constructor(
     private device: GPUDevice,
@@ -245,6 +246,8 @@ export class CommandExecutor {
   async execute(kind: Envelope["kind"]): Promise<void> {
     switch (kind.case) {
       case "present": {
+        await this.previousPresent;
+
         if (this.surfaceTexture && this.context) {
           const encoder = this.device.createCommandEncoder(
             { label: "present copy" });
@@ -255,101 +258,21 @@ export class CommandExecutor {
           this.device.queue.submit([encoder.finish()]);
         }
 
-        const presentDone = () => {
-          this.reply({ case: "presentDone", value: {} });
-          this.onPresent();
-        };
-        if (typeof requestAnimationFrame === "function")
-          requestAnimationFrame(presentDone);
-        else
-          setTimeout(presentDone, 16); /* non-browser environments */
+        this.previousPresent = new Promise((resolve) => {
+          const done = () => {
+            this.reply({ case: "presentDone", value: {} });
+            this.onPresent();
+            resolve();
+          };
+
+          if (typeof requestAnimationFrame === "function")
+            requestAnimationFrame(done);
+          else
+            setTimeout(done, 16); /* non-browser environments */
+        });
         return;
       }
 
-      case "mapBuffer": {
-        const m = kind.value;
-        const buffer = this.buffer(m.bufferId);
-        try {
-          const size = m.size === U64_WHOLE ? undefined
-            : Number(m.size);
-          await buffer.mapAsync(m.mode, Number(m.offset), size);
-          /* Send the contents back for read maps and write maps alike (a
-           * write mapping exposes the buffer's current data too).  Write
-           * maps stay mapped client-side until UnmapBuffer. */
-          const data = new Uint8Array(
-            buffer.getMappedRange(Number(m.offset), size)).slice();
-          const WRITE = typeof GPUMapMode !== "undefined" ? GPUMapMode.WRITE : 2;
-          if (!(m.mode & WRITE))
-            buffer.unmap();
-          this.reply({
-            case: "mapBufferData",
-            value: { requestId: m.requestId, data },
-          });
-        } catch (error) {
-          this.reply({
-            case: "mapBufferData",
-            value: {
-              requestId: m.requestId,
-              failed: true,
-              message: error instanceof Error ? error.message : String(error),
-            },
-          });
-        }
-        return;
-      }
-
-      case "loadTextureFromUrl": {
-        /* Runs in the background: the server cannot reference the texture
-         * id before our TextureLoaded reply reaches it, so later commands
-         * need not wait for the fetch. */
-        const m = kind.value;
-        void (async () => {
-          try {
-            if (typeof fetch !== "function" || typeof createImageBitmap !== "function")
-              throw new Error("image loading needs fetch/createImageBitmap");
-            const response = await fetch(m.url);
-            if (!response.ok)
-              throw new Error(`HTTP ${response.status} for ${m.url}`);
-            const bitmap = await createImageBitmap(await response.blob(), {
-              colorSpaceConversion: "none",
-              premultiplyAlpha: "none",
-            });
-            try {
-              const texture = this.device.createTexture({
-                label: m.label,
-                format: "rgba8unorm",
-                size: { width: bitmap.width, height: bitmap.height },
-                usage: m.usage,
-              });
-              this.device.queue.copyExternalImageToTexture(
-                { source: bitmap },
-                { texture },
-                { width: bitmap.width, height: bitmap.height });
-              this.objects.set(m.textureId, texture);
-              this.reply({
-                case: "textureLoaded",
-                value: {
-                  requestId: m.requestId,
-                  width: bitmap.width,
-                  height: bitmap.height,
-                },
-              });
-            } finally {
-              bitmap.close();
-            }
-          } catch (error) {
-            this.reply({
-              case: "textureLoaded",
-              value: {
-                requestId: m.requestId,
-                failed: true,
-                message: error instanceof Error ? error.message : String(error),
-              },
-            });
-          }
-        })();
-        return;
-      }
 
       case "requestDevice": {
         const m = kind.value;
@@ -383,12 +306,12 @@ export class CommandExecutor {
       }
 
       default:
-        this.executeSync(kind);
+        void this.executeSync(kind);
     }
   }
 
   /** Execute one synchronous command immediately. */
-  private executeSync(kind: Envelope["kind"]): void {
+  private async executeSync(kind: Envelope["kind"]): Promise<void> {
     switch (kind.case) {
       case "createShaderModule": {
         const m = kind.value;
@@ -1088,6 +1011,91 @@ export class CommandExecutor {
         if (typeof GPUBuffer !== "undefined" && object instanceof GPUBuffer)
           object.destroy();
         break;
+      }
+
+      case "mapBuffer": {
+        const m = kind.value;
+        const buffer = this.buffer(m.bufferId);
+        try {
+          const size = m.size === U64_WHOLE ? undefined
+            : Number(m.size);
+          await buffer.mapAsync(m.mode, Number(m.offset), size);
+          /* Send the contents back for read maps and write maps alike (a
+           * write mapping exposes the buffer's current data too).  Write
+           * maps stay mapped client-side until UnmapBuffer. */
+          const data = new Uint8Array(
+            buffer.getMappedRange(Number(m.offset), size)).slice();
+          const WRITE = typeof GPUMapMode !== "undefined" ? GPUMapMode.WRITE : 2;
+          if (!(m.mode & WRITE))
+            buffer.unmap();
+          this.reply({
+            case: "mapBufferData",
+            value: { requestId: m.requestId, data },
+          });
+        } catch (error) {
+          this.reply({
+            case: "mapBufferData",
+            value: {
+              requestId: m.requestId,
+              failed: true,
+              message: error instanceof Error ? error.message : String(error),
+            },
+          });
+        }
+        return;
+      }
+
+      case "loadTextureFromUrl": {
+        /* Runs in the background: the server cannot reference the texture
+         * id before our TextureLoaded reply reaches it, so later commands
+         * need not wait for the fetch. */
+        const m = kind.value;
+        void (async () => {
+          try {
+            if (typeof fetch !== "function" || typeof createImageBitmap !== "function")
+              throw new Error("image loading needs fetch/createImageBitmap");
+            const response = await fetch(m.url);
+            if (!response.ok)
+              throw new Error(`HTTP ${response.status} for ${m.url}`);
+            const bitmap = await createImageBitmap(await response.blob(), {
+              colorSpaceConversion: "none",
+              premultiplyAlpha: "none",
+            });
+            try {
+              const texture = this.device.createTexture({
+                label: m.label,
+                format: "rgba8unorm",
+                size: { width: bitmap.width, height: bitmap.height },
+                usage: m.usage,
+              });
+              this.device.queue.copyExternalImageToTexture(
+                { source: bitmap },
+                { texture },
+                { width: bitmap.width, height: bitmap.height });
+              this.objects.set(m.textureId, texture);
+              this.reply({
+                case: "textureLoaded",
+                value: {
+                  requestId: m.requestId,
+                  width: bitmap.width,
+                  height: bitmap.height,
+                },
+              });
+            } finally {
+              bitmap.close();
+            }
+          } catch (error) {
+            this.reply({
+              case: "textureLoaded",
+              value: {
+                requestId: m.requestId,
+                failed: true,
+                message: error instanceof Error ? error.message : String(error),
+              },
+            });
+          }
+        })();
+        return;
       }
 
       default:

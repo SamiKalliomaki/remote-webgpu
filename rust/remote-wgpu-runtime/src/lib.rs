@@ -366,7 +366,6 @@ impl Runtime {
                     if write_ws.send(tungstenite::Message::Binary(batch)).is_err() {
                         break;
                     }
-                    std::thread::sleep(Duration::from_millis(5));
                 }
                 let _ = write_ws.close(None);
             })?;

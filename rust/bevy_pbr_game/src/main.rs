@@ -313,7 +313,6 @@ fn runner(mut app: App) -> AppExit {
     // The app was built against the first client; adopt it as player 0.
     let first = app.world_mut().remove_resource::<FirstClient>().unwrap().0;
     players.push(attach_view(&mut app, first, RenderApp.intern(), 0, 0));
-    let mut last_vsync = Instant::now();
 
     loop {
         // New tabs become new players.
@@ -401,10 +400,6 @@ fn runner(mut app: App) -> AppExit {
             }
         }
         players.retain(|player| !player.gone);
-        if players.is_empty() {
-            info!("all players left; shutting down");
-            return AppExit::Success;
-        }
 
         // Trigger the verification screenshot once the frame limit is hit,
         // then give the readback a little time to complete.
@@ -453,13 +448,8 @@ fn runner(mut app: App) -> AppExit {
         let ready: HashSet<bevy::app::InternedAppLabel> = players
             .iter()
             .filter(|p| {
-                let vsync_pending = p.client.vsync_frames_pending() >= 2;
-                if !vsync_pending {
-                    println!("Waited for vsync: {} ms", last_vsync.elapsed().as_millis());
-                    last_vsync = Instant::now();
-                }
-
-                return !vsync_pending && !p.client.is_disconnected();
+                let vsync_pending = p.client.vsync_frames_pending() >= 3;
+                !vsync_pending && !p.client.is_disconnected()
             })
             .map(|p| p.label)
             .collect();
@@ -470,28 +460,22 @@ fn runner(mut app: App) -> AppExit {
             .map(|(_, sub_app)| sub_app)
             .collect();
 
-        if ready_apps.len() > 0 {
-            let now = Instant::now();
-            // Extract the main world into each of them, one at a time:
-            // extraction re-points the main world's `RenderEntity` rows at the
-            // extracting world, so extracts cannot overlap.
-            for sub_app in &mut ready_apps {
-                sub_app.extract(sub_apps.main.world_mut());
-            }
-
-            // Render all views in parallel; each render world drives only its
-            // own client's GPU.
-            // std::thread::scope(|scope| {
-            for sub_app in ready_apps {
-                // scope.spawn(move || sub_app.update());
-                sub_app.update();
-            }
-            // });
-            sub_apps.main.world_mut().clear_trackers();
-            frames += 1;
-
-            println!("Frame took: {} ms", now.elapsed().as_millis());
+        // Extract the main world into each of them, one at a time:
+        // extraction re-points the main world's `RenderEntity` rows at the
+        // extracting world, so extracts cannot overlap.
+        for sub_app in &mut ready_apps {
+            sub_app.extract(sub_apps.main.world_mut());
         }
+
+        // Render all views in parallel; each render world drives only its
+        // own client's GPU.
+        std::thread::scope(|scope| {
+            for sub_app in ready_apps {
+                scope.spawn(move || sub_app.update());
+            }
+        });
+        sub_apps.main.world_mut().clear_trackers();
+        frames += 1;
 
         // Sleep until something happens (an event, a vsync ack) or a few
         // milliseconds pass, whichever is first; the MIN_STEP gate above
