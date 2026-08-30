@@ -6,7 +6,7 @@ browser tab exposing `navigator.gpu`).
 
 | Directory | What it is |
 | --- | --- |
-| `proto/` | The wire protocol, as protobuf messages.  One serialized `Envelope` per binary websocket message. |
+| `proto/` | The wire protocol, as protobuf messages.  Each binary websocket message carries one or more size-prefixed serialized `Envelope`s. |
 | `remote_webgpu/` | C static library implementing the `webgpu.h` headers.  Transport-agnostic: the app supplies a send callback and pushes received messages in via `wgpuRemoteAdapterReceiveData()`; completions (vsync futures, buffer maps, error scopes, work-done, compilation info) fire from inside that call.  The full WebGPU API is forwarded -- everything expressible in the browser's `navigator.gpu` works remotely. |
 | `client/` | `remote-webgpu-client`, the TypeScript client library.  Connects to the server, obtains a local adapter/device from `navigator.gpu` and performs the handshake. |
 | `example_client/` | Web page with a full-screen canvas that uses the client library. |

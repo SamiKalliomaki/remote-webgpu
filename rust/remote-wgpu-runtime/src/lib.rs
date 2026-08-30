@@ -211,6 +211,20 @@ pub fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(Runtime::start)
 }
 
+/// Splits one binary websocket message into the size-prefixed envelopes it
+/// carries (see the transport notes in the .proto).  A malformed prefix
+/// ends the iteration; the C library's parser reports the garbage envelope.
+fn envelopes(data: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut rest = data;
+    std::iter::from_fn(move || {
+        let (prefix, tail) = rest.split_at_checked(4)?;
+        let size = u32::from_le_bytes(prefix.try_into().unwrap()) as usize;
+        let (envelope, tail) = tail.split_at_checked(size)?;
+        rest = tail;
+        Some(envelope)
+    })
+}
+
 unsafe extern "C" fn send_cb(data: *const c_void, size: usize, userdata: *mut c_void) {
     let ctx = unsafe { &*(userdata as *const SendCtx) };
     let bytes = unsafe { std::slice::from_raw_parts(data as *const u8, size) }.to_vec();
@@ -326,13 +340,29 @@ impl Runtime {
         std::thread::Builder::new()
             .name(format!("remote-wgpu-writer-{id}"))
             .spawn(move || {
-                for message in rx {
-                    if write_ws
-                        .send(tungstenite::Message::Binary(message))
-                        .is_err()
-                    {
+                // A websocket message carries a *batch* of size-prefixed
+                // envelopes (see the transport notes in the .proto): every
+                // envelope already waiting in the channel joins the batch,
+                // so a burst of commands costs one websocket message and
+                // one syscall instead of one each.
+                // Send everything queued as one message, sleep 5 ms, and
+                // repeat: envelopes batch up while the writer sleeps.  The
+                // blocking recv() just keeps an idle connection from
+                // spinning.
+                while let Ok(mut message) = rx.recv() {
+                    let mut batch = Vec::with_capacity(4 + message.len());
+                    loop {
+                        batch.extend_from_slice(&(message.len() as u32).to_le_bytes());
+                        batch.extend_from_slice(&message);
+                        match rx.try_recv() {
+                            Ok(next) => message = next,
+                            Err(_) => break,
+                        }
+                    }
+                    if write_ws.send(tungstenite::Message::Binary(batch)).is_err() {
                         break;
                     }
+                    std::thread::sleep(Duration::from_millis(5));
                 }
                 let _ = write_ws.close(None);
             })?;
@@ -387,12 +417,14 @@ impl Runtime {
             match read_ws.read() {
                 Ok(tungstenite::Message::Binary(data)) => {
                     let _guard = self.lock();
-                    unsafe {
-                        remote_sys::wgpuRemoteAdapterReceiveData(
-                            client.adapter,
-                            data.as_ptr() as *const c_void,
-                            data.len(),
-                        );
+                    for envelope in envelopes(&data) {
+                        unsafe {
+                            remote_sys::wgpuRemoteAdapterReceiveData(
+                                client.adapter,
+                                envelope.as_ptr() as *const c_void,
+                                envelope.len(),
+                            );
+                        }
                     }
                 }
                 Ok(tungstenite::Message::Close(_)) | Err(_) => {
@@ -413,12 +445,14 @@ impl Runtime {
                 Ok(tungstenite::Message::Binary(data)) => {
                     {
                         let _guard = self.lock();
-                        unsafe {
-                            remote_sys::wgpuRemoteAdapterReceiveData(
-                                client.adapter,
-                                data.as_ptr() as *const c_void,
-                                data.len(),
-                            );
+                        for envelope in envelopes(&data) {
+                            unsafe {
+                                remote_sys::wgpuRemoteAdapterReceiveData(
+                                    client.adapter,
+                                    envelope.as_ptr() as *const c_void,
+                                    envelope.len(),
+                                );
+                            }
                         }
                     }
                     self.notify();

@@ -50,13 +50,46 @@ export interface FrameStats {
   /** Protobuf messages received from the server since the previous frame
    * (the Present command itself included). */
   messages: number;
+  /** Websocket messages those envelopes arrived in (the server batches
+   * bursts of envelopes into one websocket message). */
+  packets: number;
   /** Total encoded size of those messages, in bytes. */
   bytes: number;
+}
+
+/** Wrap one serialized envelope in its 4-byte little-endian size prefix. */
+function frameEnvelope(bytes: Uint8Array): Uint8Array {
+  const framed = new Uint8Array(4 + bytes.byteLength);
+  new DataView(framed.buffer).setUint32(0, bytes.byteLength, true);
+  framed.set(bytes, 4);
+  return framed;
+}
+
+/**
+ * Split one binary websocket message into the envelopes it carries: each
+ * is prefixed with its size as a 4-byte little-endian integer (see the
+ * transport notes in remote_webgpu.proto).
+ */
+function* splitEnvelopes(data: Uint8Array): Generator<Uint8Array> {
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  let offset = 0;
+  while (offset < data.byteLength) {
+    if (offset + 4 > data.byteLength)
+      throw new Error("truncated envelope length prefix");
+    const size = view.getUint32(offset, true);
+    offset += 4;
+    if (offset + size > data.byteLength)
+      throw new Error("truncated envelope");
+    yield data.subarray(offset, offset + size);
+    offset += size;
+  }
 }
 
 export class RemoteGpuClient {
   /** Protocol messages received since the last presented frame. */
   private frameMessages = 0;
+  /** Websocket messages received since the last presented frame. */
+  private framePackets = 0;
   /** Bytes received since the last presented frame. */
   private frameBytes = 0;
 
@@ -77,18 +110,23 @@ export class RemoteGpuClient {
                             () => {
                               options.onFrame?.({
                                 messages: this.frameMessages,
+                                packets: this.framePackets,
                                 bytes: this.frameBytes,
                               });
                               this.frameMessages = 0;
+                              this.framePackets = 0;
                               this.frameBytes = 0;
                             })
       : null;
     this.watchCanvasSize();
     ws.onmessage = (event) => {
       const data = new Uint8Array(event.data as ArrayBuffer);
-      this.frameMessages += 1;
+      this.framePackets += 1;
       this.frameBytes += data.byteLength;
-      this.handleEnvelope(fromBinary(EnvelopeSchema, data));
+      for (const bytes of splitEnvelopes(data)) {
+        this.frameMessages += 1;
+        this.handleEnvelope(fromBinary(EnvelopeSchema, bytes));
+      }
     };
     ws.onclose = (event) => {
       options.onClose?.(event.reason || `connection closed (code ${event.code})`);
@@ -180,7 +218,7 @@ export class RemoteGpuClient {
         },
       },
     });
-    ws.send(toBinary(EnvelopeSchema, hello));
+    ws.send(frameEnvelope(toBinary(EnvelopeSchema, hello)));
     status("handshake complete");
 
     return new RemoteGpuClient(ws, options, adapter, device);
@@ -273,14 +311,15 @@ export class RemoteGpuClient {
     return new Promise((resolve, reject) => {
       ws.onmessage = (event) => {
         ws.onmessage = null;
-        resolve(fromBinary(EnvelopeSchema, new Uint8Array(event.data as ArrayBuffer)));
+        const [bytes] = splitEnvelopes(new Uint8Array(event.data as ArrayBuffer));
+        resolve(fromBinary(EnvelopeSchema, bytes));
       };
       ws.onclose = () => reject(new Error("connection closed during handshake"));
     });
   }
 
   private send(kind: ReplyKind): void {
-    this.ws.send(toBinary(EnvelopeSchema, create(EnvelopeSchema, { kind })));
+    this.ws.send(frameEnvelope(toBinary(EnvelopeSchema, create(EnvelopeSchema, { kind }))));
   }
 
   /** Dispatch a message from the server, post-handshake. */

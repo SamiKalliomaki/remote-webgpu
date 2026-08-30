@@ -3,8 +3,12 @@
 // browser talking to navigator.gpu).
 //
 // Transport: a websocket connection.  Every *binary* websocket message
-// carries exactly one serialized `Envelope`; there is no additional length
-// prefix.  Text messages are not used.
+// carries one or more serialized `Envelope`s, each prefixed with its size
+// as a 4-byte little-endian integer.  Batching several envelopes into one
+// websocket message keeps the per-message cost (syscalls, TCP packets,
+// browser event dispatch) off the fast path; senders may put each envelope
+// in its own message, receivers must accept any packing.  Text messages
+// are not used.
 //
 // Handshake: as soon as the connection is up the server sends
 // `ServerHello`; the client answers with `ClientHello` describing the GPU
