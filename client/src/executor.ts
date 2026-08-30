@@ -245,34 +245,24 @@ export class CommandExecutor {
   async execute(kind: Envelope["kind"]): Promise<void> {
     switch (kind.case) {
       case "present": {
-        /* Copy the offscreen frame into the canvas inside the
-         * animation-frame callback: acquire + submit happen in one task,
-         * right before the compositor takes the frame, and PresentDone
-         * paces the server to the display's refresh rate. */
-        await new Promise<void>((resolve, reject) => {
-          const draw = () => {
-            try {
-              if (this.context && this.surfaceTexture) {
-                const encoder = this.device.createCommandEncoder(
-                  { label: "present copy" });
-                encoder.copyTextureToTexture(
-                  { texture: this.surfaceTexture },
-                  { texture: this.context.getCurrentTexture() },
-                  [this.surfaceTexture.width, this.surfaceTexture.height]);
-                this.device.queue.submit([encoder.finish()]);
-              }
-              resolve();
-            } catch (error) {
-              reject(error);
-            }
-          };
-          if (typeof requestAnimationFrame === "function")
-            requestAnimationFrame(draw);
-          else
-            setTimeout(draw, 16); /* non-browser environments */
-        });
-        this.reply({ case: "presentDone", value: {} });
-        this.onPresent();
+        if (this.surfaceTexture && this.context) {
+          const encoder = this.device.createCommandEncoder(
+            { label: "present copy" });
+          encoder.copyTextureToTexture(
+            { texture: this.surfaceTexture },
+            { texture: this.context.getCurrentTexture() },
+            [this.surfaceTexture.width, this.surfaceTexture.height]);
+          this.device.queue.submit([encoder.finish()]);
+        }
+
+        const presentDone = () => {
+          this.reply({ case: "presentDone", value: {} });
+          this.onPresent();
+        };
+        if (typeof requestAnimationFrame === "function")
+          requestAnimationFrame(presentDone);
+        else
+          setTimeout(presentDone, 16); /* non-browser environments */
         return;
       }
 

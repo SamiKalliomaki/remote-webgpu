@@ -495,14 +495,20 @@ void wgpuRemoteAdapterReceiveData(WGPUAdapter adapter, void const *data, size_t 
         break;
 
     case REMOTE_WEBGPU__ENVELOPE__KIND_PRESENT_DONE:
-        if (self->vsync_pending) {
-            WGPURemoteVsyncCallbackInfo callback = self->vsync_callback;
-            self->vsync_pending = 0;
-            memset(&self->vsync_callback, 0, sizeof self->vsync_callback);
-            if (callback.callback)
-                callback.callback(callback.userdata1, callback.userdata2);
-        } else {
+        if (self->presents_done >= self->presents_sent) {
             fprintf(stderr, "remote_webgpu: unsolicited PresentDone\n");
+            break;
+        }
+        self->presents_done++;
+        while (self->vsync_waits &&
+               self->vsync_waits->present_seq <= self->presents_done) {
+            RwVsyncWait *wait = self->vsync_waits;
+            self->vsync_waits = wait->next;
+            rw_future_complete(self->instance, wait->future_id);
+            if (wait->callback.callback)
+                wait->callback.callback(wait->callback.userdata1,
+                                        wait->callback.userdata2);
+            free(wait);
         }
         break;
 
@@ -713,6 +719,11 @@ void wgpuAdapterRelease(WGPUAdapter adapter)
             RwRequest *request = self->requests;
             self->requests = request->next;
             free(request);
+        }
+        while (self->vsync_waits) {
+            RwVsyncWait *wait = self->vsync_waits;
+            self->vsync_waits = wait->next;
+            free(wait);
         }
         free(self->features);
         free(self->wgsl_features);

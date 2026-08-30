@@ -184,6 +184,10 @@ impl Client {
     pub fn vsync_is_pending(&self) -> bool {
         self.vsync_pending.load(Ordering::SeqCst) > 0
     }
+
+    pub fn vsync_frames_pending(&self) -> u64 {
+        self.vsync_pending.load(Ordering::SeqCst)
+    }
 }
 
 pub struct Runtime {

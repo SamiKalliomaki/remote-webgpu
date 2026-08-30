@@ -165,8 +165,10 @@ typedef struct WGPURemoteVsyncCallbackInfo {
  * wgpuSurfacePresent() is on the client's screen (the client acknowledges
  * its next vsync).  wgpuSurfacePresent() itself only queues the present and
  * returns immediately; wait on this future to pace a render loop to the
- * client's refresh rate.  The callback fires from inside
- * wgpuRemoteAdapterReceiveData().
+ * client's refresh rate.  Any number of these waits may be pending at once:
+ * each one is tied to the last wgpuSurfacePresent() call made before it was
+ * registered, and they fire in registration order.  The callback fires from
+ * inside wgpuRemoteAdapterReceiveData().
  */
 WGPU_EXPORT WGPUFuture wgpuRemoteSurfaceOnNextVsync(WGPUSurface surface,
                                                     WGPURemoteVsyncCallbackInfo callbackInfo);

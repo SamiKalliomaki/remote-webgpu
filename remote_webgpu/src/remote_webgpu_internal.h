@@ -58,6 +58,15 @@ typedef struct RwRequest {
     } cb;
 } RwRequest;
 
+/* One wgpuRemoteSurfaceOnNextVsync() wait: fires (and completes its future)
+ * once the client has acknowledged `present_seq` presents. */
+typedef struct RwVsyncWait {
+    struct RwVsyncWait *next;
+    uint64_t present_seq;
+    uint64_t future_id;
+    WGPURemoteVsyncCallbackInfo callback;
+} RwVsyncWait;
+
 typedef struct RemoteAdapter {
     RemoteObject obj;
     RemoteInstance *instance;
@@ -96,9 +105,12 @@ typedef struct RemoteAdapter {
     /* Receives client events (resize, user-defined); zeroed until the app
      * registers one via wgpuRemoteAdapterSetEventCallback(). */
     WGPURemoteEventCallbackInfo event_callback;
-    /* Pending vsync wait (one at a time); fires on PresentDone. */
-    WGPURemoteVsyncCallbackInfo vsync_callback;
-    int vsync_pending;
+    /* Pending vsync waits, oldest first.  Each is tied to the last present
+     * sent before it was registered; every PresentDone from the client bumps
+     * presents_done and fires the waits whose present has been acknowledged. */
+    RwVsyncWait *vsync_waits;
+    uint64_t presents_sent;
+    uint64_t presents_done;
     /* The device the client reported lost (owning the callbacks below);
      * see remote_webgpu.c. */
     struct RemoteDevice *lost_device;

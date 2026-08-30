@@ -1124,10 +1124,11 @@ WGPUStatus wgpuSurfacePresent(WGPUSurface surface)
         return WGPUStatus_Error;
 
     /* Fire and forget: the client acknowledges with PresentDone once the
-     * frame is on screen, which completes the future handed out by
+     * frame is on screen, which completes the futures handed out by
      * wgpuRemoteSurfaceOnNextVsync(). */
     RemoteWebgpu__Present msg = REMOTE_WEBGPU__PRESENT__INIT;
     SEND(self->device, PRESENT, present, &msg);
+    rw_device_adapter(self->device)->presents_sent++;
     return WGPUStatus_Success;
 }
 
@@ -1140,11 +1141,20 @@ WGPUFuture wgpuRemoteSurfaceOnNextVsync(WGPUSurface surface,
         return future;
 
     RemoteAdapter *adapter = rw_device_adapter(self->device);
+    RwVsyncWait *wait = calloc(1, sizeof *wait);
+    if (!wait)
+        return future;
+
     future.id = rw_next_future_id(adapter);
-    if (adapter->vsync_pending)
-        fprintf(stderr, "remote_webgpu: replacing an unfired vsync callback\n");
-    adapter->vsync_callback = callbackInfo;
-    adapter->vsync_pending = 1;
+    wait->present_seq = adapter->presents_sent;
+    wait->future_id = future.id;
+    wait->callback = callbackInfo;
+
+    /* Append: present_seq is monotonic, so the list stays oldest-first. */
+    RwVsyncWait **tail = &adapter->vsync_waits;
+    while (*tail)
+        tail = &(*tail)->next;
+    *tail = wait;
     return future;
 }
 

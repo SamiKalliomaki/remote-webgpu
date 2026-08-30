@@ -453,12 +453,13 @@ fn runner(mut app: App) -> AppExit {
         let ready: HashSet<bevy::app::InternedAppLabel> = players
             .iter()
             .filter(|p| {
-                if !p.client.vsync_is_pending() {
+                let vsync_pending = p.client.vsync_frames_pending() >= 2;
+                if !vsync_pending {
                     println!("Waited for vsync: {} ms", last_vsync.elapsed().as_millis());
                     last_vsync = Instant::now();
                 }
 
-                return !p.client.vsync_is_pending() && !p.client.is_disconnected();
+                return !vsync_pending && !p.client.is_disconnected();
             })
             .map(|p| p.label)
             .collect();
