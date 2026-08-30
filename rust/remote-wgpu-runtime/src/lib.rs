@@ -70,7 +70,54 @@ impl<T: HasRemoteClient> HasRemoteClient for &T {
 }
 
 struct SendCtx {
+    id: u64,
     tx: Sender<Vec<u8>>,
+}
+
+/// Temporary instrumentation: with REMOTE_WEBGPU_TRAFFIC_STATS=1, tally
+/// outgoing bytes per client per envelope type and print every 2 seconds.
+fn traffic_stats(client: u64, envelope: &[u8]) {
+    use std::collections::HashMap;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    if !*ENABLED.get_or_init(|| std::env::var("REMOTE_WEBGPU_TRAFFIC_STATS").is_ok()) {
+        return;
+    }
+    static STATS: OnceLock<Mutex<(HashMap<(u64, u32), (u64, u64)>, Option<std::time::Instant>)>> =
+        OnceLock::new();
+    // The envelope is a protobuf message whose first field tag names the
+    // oneof variant: varint key = (field_number << 3) | wire_type.
+    let mut key: u32 = 0;
+    let mut shift = 0;
+    for &byte in envelope.iter().take(5) {
+        key |= ((byte & 0x7f) as u32) << shift;
+        if byte & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+    }
+    let field = key >> 3;
+    let mut stats = STATS.get_or_init(Default::default).lock().unwrap();
+    let (map, last_print) = &mut *stats;
+    let entry = map.entry((client, field)).or_insert((0, 0));
+    entry.0 += envelope.len() as u64 + 4;
+    entry.1 += 1;
+    let now = std::time::Instant::now();
+    let due = last_print.map_or(true, |t| now.duration_since(t) >= Duration::from_secs(2));
+    if due {
+        let elapsed = last_print.map_or(2.0, |t| now.duration_since(t).as_secs_f64());
+        *last_print = Some(now);
+        let mut rows: Vec<_> = map.iter().collect();
+        rows.sort_by_key(|(_, (bytes, _))| std::cmp::Reverse(*bytes));
+        eprintln!("--- traffic per {elapsed:.1}s ---");
+        for ((client, field), (bytes, count)) in rows {
+            eprintln!(
+                "  client {client} field {field:3}: {:9.1} KiB/s  {:7.0} msg/s",
+                *bytes as f64 / elapsed / 1024.0,
+                *count as f64 / elapsed,
+            );
+        }
+        map.clear();
+    }
 }
 
 /// Reentrant lock guarding all calls into the C library.
@@ -232,6 +279,7 @@ fn envelopes(data: &[u8]) -> impl Iterator<Item = &[u8]> {
 unsafe extern "C" fn send_cb(data: *const c_void, size: usize, userdata: *mut c_void) {
     let ctx = unsafe { &*(userdata as *const SendCtx) };
     let bytes = unsafe { std::slice::from_raw_parts(data as *const u8, size) }.to_vec();
+    traffic_stats(ctx.id, &bytes);
     // A send failure means the writer thread is gone; the reader thread
     // notices the close and reports the disconnect.
     let _ = ctx.tx.send(bytes);
@@ -339,7 +387,7 @@ impl Runtime {
         );
 
         let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = std::sync::mpsc::channel();
-        let send_ctx = Box::leak(Box::new(SendCtx { tx }));
+        let send_ctx = Box::leak(Box::new(SendCtx { id, tx }));
 
         std::thread::Builder::new()
             .name(format!("remote-wgpu-writer-{id}"))

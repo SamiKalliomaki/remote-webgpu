@@ -167,7 +167,42 @@ fn build_app(render_creation: RenderCreation, shared_assets: Option<AssetServer>
             .disable::<LogPlugin>();
     }
     app.add_plugins(plugins);
+    app.get_sub_app_mut(RenderApp)
+        .expect("RenderPlugin built the render sub-app")
+        .add_systems(
+            bevy::render::Render,
+            // After ExtractCommands: extraction's inserts are deferred and
+            // only land there, not during `SubApp::extract` itself.
+            drop_unowned_view_clusters
+                .after(bevy::render::RenderSystems::ExtractCommands)
+                .before(bevy::render::RenderSystems::PrepareResources),
+        );
     app
+}
+
+/// bevy_pbr's cluster extraction copies cluster configs for *every* active
+/// camera in the main world; it knows nothing about this workspace's
+/// one-render-world-per-player split.  Left alone, every render world then
+/// re-uploads ~380 KiB of (zeroed) cluster buffers per camera per frame, so
+/// each client's traffic grows linearly with the player count.  The fork
+/// already strips `ExtractedCamera` from views a world doesn't own; dropping
+/// the cluster components alongside it (after extract, before the world
+/// updates) keeps `prepare_clusters_for_gpu_clustering` to the world's own
+/// view.
+fn drop_unowned_view_clusters(world: &mut World) {
+    let unowned: Vec<Entity> = world
+        .query_filtered::<Entity, (
+            With<bevy::pbr::ExtractedClusterConfig>,
+            Without<bevy::render::camera::ExtractedCamera>,
+        )>()
+        .iter(world)
+        .collect();
+    for entity in unowned {
+        world.entity_mut(entity).remove::<(
+            bevy::pbr::ExtractedClusterConfig,
+            bevy::pbr::ExtractedClusterableObjects,
+        )>();
+    }
 }
 
 /// Spawns a window entity + camera + character for a connected client, and
