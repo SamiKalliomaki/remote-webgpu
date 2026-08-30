@@ -26,7 +26,7 @@ mod game;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use bevy::app::{AppLabel, PluginGroup, PluginsState};
 use bevy::asset::AssetPlugin;
@@ -313,6 +313,7 @@ fn runner(mut app: App) -> AppExit {
     // The app was built against the first client; adopt it as player 0.
     let first = app.world_mut().remove_resource::<FirstClient>().unwrap().0;
     players.push(attach_view(&mut app, first, RenderApp.intern(), 0, 0));
+    let mut last_vsync = Instant::now();
 
     loop {
         // New tabs become new players.
@@ -447,17 +448,49 @@ fn runner(mut app: App) -> AppExit {
         // browser has acknowledged the previous frame.
         let sub_apps = app.sub_apps_mut();
         sub_apps.main.run_default_schedule();
-        for player in &players {
-            if player.client.vsync_is_pending() || player.client.is_disconnected() {
-                continue;
-            }
-            if let Some(sub_app) = sub_apps.sub_apps.get_mut(&player.label) {
+
+        // The render worlds ready for a frame right now.
+        let ready: HashSet<bevy::app::InternedAppLabel> = players
+            .iter()
+            .filter(|p| {
+                if !p.client.vsync_is_pending() {
+                    println!("Waited for vsync: {} ms", last_vsync.elapsed().as_millis());
+                    last_vsync = Instant::now();
+                }
+
+                return !p.client.vsync_is_pending() && !p.client.is_disconnected();
+            })
+            .map(|p| p.label)
+            .collect();
+        let mut ready_apps: Vec<&mut bevy::app::SubApp> = sub_apps
+            .sub_apps
+            .iter_mut()
+            .filter(|(label, _)| ready.contains(*label))
+            .map(|(_, sub_app)| sub_app)
+            .collect();
+
+        if ready_apps.len() > 0 {
+            let now = Instant::now();
+            // Extract the main world into each of them, one at a time:
+            // extraction re-points the main world's `RenderEntity` rows at the
+            // extracting world, so extracts cannot overlap.
+            for sub_app in &mut ready_apps {
                 sub_app.extract(sub_apps.main.world_mut());
+            }
+
+            // Render all views in parallel; each render world drives only its
+            // own client's GPU.
+            // std::thread::scope(|scope| {
+            for sub_app in ready_apps {
+                // scope.spawn(move || sub_app.update());
                 sub_app.update();
             }
+            // });
+            sub_apps.main.world_mut().clear_trackers();
+            frames += 1;
+
+            println!("Frame took: {} ms", now.elapsed().as_millis());
         }
-        sub_apps.main.world_mut().clear_trackers();
-        frames += 1;
 
         // Sleep until something happens (an event, a vsync ack) or a few
         // milliseconds pass, whichever is first; the MIN_STEP gate above
@@ -480,11 +513,6 @@ fn main() {
     app.set_runner(runner);
     app.run();
 }
-
-
-
-
-
 
 /// Render worlds learn about asset contents from `AssetEvent` messages,
 /// which only live for two frames; a render world that joins later missed

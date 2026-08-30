@@ -19,15 +19,18 @@ function log(message: string): void {
  * once a second (messages/frame and bandwidth are averages over frames). */
 let frameCount = 0;
 let messageCount = 0;
+let packetCount = 0;
 let byteCount = 0;
 setInterval(() => {
   const perFrame = frameCount > 0 ? Math.round(messageCount / frameCount) : 0;
+  const pktsPerFrame = frameCount > 0 ? Math.round(packetCount / frameCount) : 0;
   const kib = byteCount / 1024;
   fpsBox.textContent =
-    `${frameCount} fps · ${perFrame} msgs/frame · ${
+    `${frameCount} fps · ${perFrame} msgs in ${pktsPerFrame} pkts/frame · ${
       kib >= 1024 ? (kib / 1024).toFixed(1) + " MiB/s" : Math.round(kib) + " KiB/s"}`;
   frameCount = 0;
   messageCount = 0;
+  packetCount = 0;
   byteCount = 0;
 }, 1000);
 
@@ -42,6 +45,7 @@ try {
     onFrame: (stats) => {
       frameCount += 1;
       messageCount += stats.messages;
+      packetCount += stats.packets;
       byteCount += stats.bytes;
     },
     onClose: (reason) => log(`disconnected: ${reason}`),
