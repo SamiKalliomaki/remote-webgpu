@@ -42,6 +42,7 @@ use bevy::render::sync_world::{register_render_world, unregister_render_world, S
 use bevy::render::view::window::screenshot::{save_to_disk, share_screenshot_channel, Screenshot};
 use bevy::render::view::window::OwnedWindow;
 use bevy::render::RenderApp;
+use bevy::tasks::ComputeTaskPool;
 use bevy::render::RenderPlugin;
 use bevy::window::{ExitCondition, PresentMode, RawHandleWrapper, WindowRef, WindowWrapper};
 use raw_window_handle::{
@@ -467,11 +468,11 @@ fn runner(mut app: App) -> AppExit {
             sub_app.extract(sub_apps.main.world_mut());
         }
 
-        // Render all views in parallel; each render world drives only its
-        // own client's GPU.
-        std::thread::scope(|scope| {
+        // Render all views in parallel on bevy's compute pool; each render
+        // world drives only its own client's GPU.
+        ComputeTaskPool::get().scope(|scope| {
             for sub_app in ready_apps {
-                scope.spawn(move || sub_app.update());
+                scope.spawn(async move { sub_app.update() });
             }
         });
         sub_apps.main.world_mut().clear_trackers();
