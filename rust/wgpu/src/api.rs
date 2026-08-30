@@ -21,6 +21,37 @@ fn rt() -> &'static Runtime {
     runtime()
 }
 
+/// Run a user-supplied completion callback (map_async, on_submitted_work_done)
+/// on a dedicated thread instead of inline in the websocket reader.
+///
+/// The reader thread holds the runtime's C lock while it dispatches client
+/// replies; a user callback that takes an application mutex there deadlocks
+/// against any render thread holding that same mutex while it waits for the
+/// C lock (seen with bevy_pbr's GPU-clustering readback).  Upstream wgpu
+/// fires these callbacks from `poll()` on an application thread, never with
+/// internal locks held, so applications are entitled to lock whatever they
+/// like inside them.  Callbacks run in submission order.
+fn dispatch_user_callback(callback: Box<dyn FnOnce() + Send>) {
+    type Tx = std::sync::mpsc::Sender<Box<dyn FnOnce() + Send>>;
+    static TX: OnceLock<Tx> = OnceLock::new();
+    let tx = TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<Box<dyn FnOnce() + Send>>();
+        std::thread::Builder::new()
+            .name("remote-wgpu-callbacks".into())
+            .spawn(move || {
+                while let Ok(callback) = rx.recv() {
+                    callback();
+                    // Wake anything blocked in Runtime::wait/wait_until on
+                    // the callback's effect (e.g. Device::poll(Wait)).
+                    rt().notify();
+                }
+            })
+            .expect("spawn remote-wgpu callback thread");
+        tx
+    });
+    let _ = tx.send(callback);
+}
+
 // ---------------------------------------------------------------------
 // completion futures
 // ---------------------------------------------------------------------
@@ -472,7 +503,9 @@ unsafe extern "C" fn uncaptured_error_cb(
     let error = make_error(ty, from_sv(message));
     let handler = UNCAPTURED_ERROR_HANDLER.lock().unwrap().clone();
     match handler {
-        Some(handler) => handler(error),
+        // The handler is application code; keep it off the reader thread
+        // (which holds the C lock here) like the other user callbacks.
+        Some(handler) => dispatch_user_callback(Box::new(move || handler(error))),
         None => log::error!("remote-wgpu: uncaptured error: {error}"),
     }
 }
@@ -1236,7 +1269,7 @@ impl Queue {
         ) {
             let callback =
                 unsafe { Box::from_raw(userdata1 as *mut Box<dyn FnOnce() + Send>) };
-            callback();
+            dispatch_user_callback(*callback);
         }
         let _guard = rt().lock();
         let mut cb: sys::WGPUQueueWorkDoneCallbackInfo = unsafe { std::mem::zeroed() };
@@ -1461,11 +1494,12 @@ impl<'a> BufferSlice<'a> {
             _userdata2: *mut c_void,
         ) {
             let callback = unsafe { Box::from_raw(userdata1 as *mut MapCallback) };
-            if status == sys::WGPUMapAsyncStatus_Success {
-                callback(Ok(()));
+            let result = if status == sys::WGPUMapAsyncStatus_Success {
+                Ok(())
             } else {
-                callback(Err(BufferAsyncError));
-            }
+                Err(BufferAsyncError)
+            };
+            dispatch_user_callback(Box::new(move || callback(result)));
         }
         let boxed: MapCallback = Box::new(callback);
         let _guard = rt().lock();
