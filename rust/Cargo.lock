@@ -466,17 +466,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_game"
-version = "0.1.0"
-dependencies = [
- "bevy",
- "bytemuck",
- "pollster",
- "wgpu",
- "winit",
-]
-
-[[package]]
 name = "bevy_gizmos"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
