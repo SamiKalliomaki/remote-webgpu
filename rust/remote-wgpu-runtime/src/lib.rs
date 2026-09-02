@@ -15,8 +15,9 @@
 //! messages into the library and bumps a global progress counter
 //! afterwards; blocking waits loop on that counter.
 
-use std::collections::VecDeque;
-use std::net::TcpListener;
+use std::collections::{HashMap, VecDeque};
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
@@ -250,6 +251,17 @@ pub struct Runtime {
     clients: Mutex<Vec<Arc<Client>>>,
     /// Connected clients not yet claimed by a `Window`.
     unclaimed: Mutex<VecDeque<Arc<Client>>>,
+
+    /// Static files served to plain HTTP requests on the websocket port,
+    /// keyed by request path (see [`Runtime::serve_static`]).
+    static_files: Mutex<HashMap<String, StaticFile>>,
+}
+
+/// One file registered with [`Runtime::serve_static`].
+#[derive(Clone)]
+struct StaticFile {
+    content_type: &'static str,
+    body: Arc<[u8]>,
 }
 
 static RUNTIME: OnceLock<&'static Runtime> = OnceLock::new();
@@ -333,6 +345,7 @@ impl Runtime {
             progress_cond: Condvar::new(),
             clients: Mutex::new(Vec::new()),
             unclaimed: Mutex::new(VecDeque::new()),
+            static_files: Mutex::new(HashMap::new()),
         }));
 
         std::thread::Builder::new()
@@ -352,7 +365,7 @@ impl Runtime {
                     std::thread::Builder::new()
                         .name(format!("remote-wgpu-client-{id}"))
                         .spawn(move || {
-                            if let Err(error) = runtime.connect_client(id, stream) {
+                            if let Err(error) = runtime.handle_connection(id, stream) {
                                 eprintln!("remote-wgpu: client #{id} setup failed: {error}");
                             }
                         })
@@ -362,6 +375,102 @@ impl Runtime {
             .expect("spawn accept thread");
 
         runtime
+    }
+
+    /// The TCP port the websocket server (and static files) listen on.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// Register a file to be served to plain (non-websocket) HTTP `GET`s
+    /// on the websocket port, so the application can host its own web
+    /// client on the very port the client then connects to.  `path` is
+    /// the request path (`"/"`, `"/dist/main.js"`, ...); `"/"` also
+    /// answers `/index.html`.
+    pub fn serve_static(
+        &self,
+        path: &str,
+        content_type: &'static str,
+        body: impl Into<Arc<[u8]>>,
+    ) {
+        let file = StaticFile {
+            content_type,
+            body: body.into(),
+        };
+        let mut files = self.static_files.lock().unwrap();
+        if path == "/" {
+            files.insert("/index.html".to_string(), file.clone());
+        }
+        files.insert(path.to_string(), file);
+    }
+
+    /// Route a fresh connection: a websocket upgrade becomes a client, any
+    /// other HTTP request is answered from the static-file table.
+    fn handle_connection(
+        &'static self,
+        id: u64,
+        mut stream: TcpStream,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Peek at the request head without consuming it, so tungstenite
+        // still sees the whole upgrade request.
+        let mut head = vec![0u8; 8192];
+        let mut len;
+        loop {
+            let n = stream.peek(&mut head[..])?;
+            len = n;
+            if n == 0 || head[..n].windows(4).any(|w| w == b"\r\n\r\n") || n == head.len() {
+                break;
+            }
+            // The head has not fully arrived yet; a short blocking read of
+            // one more byte would consume it, so just wait a little.
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let text = String::from_utf8_lossy(&head[..len]).into_owned();
+        let is_upgrade = text.lines().any(|line| {
+            let lower = line.to_ascii_lowercase();
+            lower.starts_with("upgrade:") && lower.contains("websocket")
+        });
+        if is_upgrade {
+            return self.connect_client(id, stream);
+        }
+
+        // Plain HTTP: consume the head and answer it.
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        let mut consumed = vec![0u8; len];
+        stream.read_exact(&mut consumed)?;
+        let request_line = text.lines().next().unwrap_or("");
+        let mut parts = request_line.split_whitespace();
+        let method = parts.next().unwrap_or("");
+        let target = parts.next().unwrap_or("/");
+        let path = target.split(['?', '#']).next().unwrap_or("/");
+
+        let file = self.static_files.lock().unwrap().get(path).cloned();
+        let (status, content_type, body): (&str, &str, Arc<[u8]>) = match file {
+            Some(file) if method == "GET" || method == "HEAD" => {
+                ("200 OK", file.content_type, file.body)
+            }
+            Some(_) => (
+                "405 Method Not Allowed",
+                "text/plain; charset=utf-8",
+                Arc::from(&b"method not allowed\n"[..]),
+            ),
+            None => (
+                "404 Not Found",
+                "text/plain; charset=utf-8",
+                Arc::from(&b"not found\n"[..]),
+            ),
+        };
+        let header = format!(
+            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n\
+             Cache-Control: no-cache\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        stream.write_all(header.as_bytes())?;
+        if method != "HEAD" {
+            stream.write_all(&body)?;
+        }
+        stream.flush()?;
+        Ok(())
     }
 
     /// Perform the websocket + remote-adapter handshake for one connection

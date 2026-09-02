@@ -1,8 +1,9 @@
 //! One Bevy game, many players, each rendering with `bevy_pbr`'s standard
 //! mesh pipeline on their own remote GPU.
 //!
-//! Run with `cargo run -p bevy_pbr_game`, then open the web client (see the
-//! repo README) in as many tabs as you like.  The first tab starts the game;
+//! Run with `cargo run -p bevy_pbr_game`, then open <http://localhost:8080>
+//! in as many tabs as you like: the game serves the web client
+//! (`example_client/`) on the same port the client connects to.  The first tab starts the game;
 //! every further tab gets its own character and its own camera into the same
 //! world.  Move with WASD or the arrow keys, dash with space.
 //!
@@ -524,9 +525,22 @@ fn runner(mut app: App) -> AppExit {
 #[derive(Resource)]
 struct FirstClient(Arc<Client>);
 
+/// The web client (`example_client/`), bundled by `build.rs` and served on
+/// the websocket port so players only need the one URL.
+const CLIENT_INDEX: &[u8] = include_bytes!("../../../example_client/index.html");
+const CLIENT_BUNDLE: &[u8] = include_bytes!("../../../example_client/dist/main.js");
+const CLIENT_BUNDLE_MAP: &[u8] = include_bytes!("../../../example_client/dist/main.js.map");
+
 fn main() {
-    println!("waiting for the first player to connect...");
-    let first = runtime().next_client();
+    let runtime = runtime();
+    runtime.serve_static("/", "text/html; charset=utf-8", CLIENT_INDEX);
+    runtime.serve_static("/dist/main.js", "text/javascript; charset=utf-8", CLIENT_BUNDLE);
+    runtime.serve_static("/dist/main.js.map", "application/json", CLIENT_BUNDLE_MAP);
+    println!(
+        "open http://localhost:{}/ in a WebGPU-capable browser; waiting for the first player...",
+        runtime.port()
+    );
+    let first = runtime.next_client();
 
     let mut app = build_app(create_gpu(&first), None);
     app.insert_resource(FirstClient(first));

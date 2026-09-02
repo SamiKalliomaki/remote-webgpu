@@ -35,8 +35,9 @@ cd ../example_client && npm install
 npm run serve                    # http://127.0.0.1:8000
 ```
 
-Open <http://127.0.0.1:8000> (append `?server=ws://host:port` for a
-non-default port) and the demo renders full-screen in the browser.  Key
+Open <http://127.0.0.1:8000/?server=ws://127.0.0.1:8080> (the page
+connects to the origin that served it unless `?server=ws://host:port`
+says otherwise) and the demo renders full-screen in the browser.  Key
 presses and mouse movement in the page are forwarded back to the demo.
 
 Demos that need capabilities browser WebGPU does not have (ray tracing,
@@ -72,33 +73,6 @@ demo (one device, many windows) does not apply to this backend.
 extension for applications that let clients join while they are running:
 it claims a connected-but-unclaimed client if there is one and returns
 `None` otherwise, where `create_window` would block.
-
-## The example game (flat renderer)
-
-`cargo run -p bevy_game` is a small multiplayer-viewport game: one Bevy
-world in one process, and one *view* per connected browser tab.  Every tab
-that connects becomes a `Window` on its own remote adapter, gets a
-character spawned into the shared world, and renders that world from a
-camera following its own character -- so the players walk around the same
-arena, bump into each other and race for the same coins, each watching
-from their own machine's GPU.  Players can join and leave at any time;
-the game exits when the last one goes.  Move with WASD or the arrow keys,
-dash with space.
-
-Bevy runs the game -- ECS, systems, `Time`, `Transform` -- but not the
-rendering: each view has a small instanced-quad pipeline of its own
-(`src/render.rs`), which is why the game is flat rather than 3D.  It
-predates the `bevy_render` fork below, and stays as the minimal example
-of driving several GPUs by hand.
-
-`--frames N --screenshot PATH` writes the first player's view out as a
-PPM and exits, by copying the canvas texture back over the websocket:
-browsers do not expose a WebGPU canvas to page screenshots, so that is
-the only way to see what a client actually drew.
-
-Note that `bevy = { default-features = false }` alone leaves
-`bevy_platform` without `std`, which silently substitutes a stub clock and
-makes every `Time` delta meaningless; the `std` feature is required.
 
 ## The bevy_render fork
 
@@ -139,7 +113,16 @@ bevy 0.19 crates — is used unmodified from crates.io via the
 ## The bevy_pbr example game
 
 `cargo run -p bevy_pbr_game` is the multiplayer-viewport game rendered by
-bevy's standard PBR mesh pipeline.  One `App` holds the shared world; the
+bevy's standard PBR mesh pipeline: every browser tab that connects gets a
+character spawned into the shared arena and a camera following it, so
+the players walk around the same world, each watching from their own
+machine's GPU.  The game also hosts the web client itself -- `build.rs`
+bundles `../example_client` with `npm` and the binary serves it on the
+websocket port, so players just open <http://localhost:8080> (the page
+connects back to the origin that served it).  Move with WASD or the arrow
+keys, dash with space.
+
+One `App` holds the shared world; the
 first tab's GPU becomes the built-in `RenderApp` (created with
 `RenderCreation::Manual` on that client's adapter/device), and every later
 tab gets a complete render sub-app of its own, built by running the
@@ -173,6 +156,10 @@ multi-draw-indirect and immediates, which WebGPU does not have.
 
 `--frames N --screenshot PATH` captures every player's view through
 bevy's own screenshot readback (`shot.png`, `shot.1.png`, ...) and exits.
+
+Note that `bevy = { default-features = false }` alone leaves
+`bevy_platform` without `std`, which silently substitutes a stub clock and
+makes every `Time` delta meaningless; the `std` feature is required.
 
 ## Notes and limitations
 

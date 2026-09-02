@@ -4,6 +4,30 @@ WebGPU over the network: a native application written against the standard
 `webgpu.h` API whose GPU lives on the other end of a websocket (e.g. in a
 browser tab exposing `navigator.gpu`).
 
+## Quick start: the Bevy PBR demo
+
+`bevy_pbr_game` is the main demo: a small multiplayer arena rendered by
+bevy's real PBR pipeline, where every connected browser tab is one
+player's view into the same world, drawn by that tab's own GPU.  The game
+binary also hosts the web client on its websocket port, so one process
+and one URL is all it takes.  You need a Rust toolchain, a C compiler,
+`protoc` and `libprotobuf-c` for the native library (see
+`example_server/README.md`), plus `node`/`npm` to bundle the client:
+
+```sh
+cd rust
+cargo run --release -p bevy_pbr_game     # builds the client bundle too
+```
+
+Then open <http://localhost:8080> in a WebGPU-capable browser (Chrome /
+Edge, or Firefox with WebGPU enabled), on any machine that can reach the
+server.  Every tab that opens the page joins as a new player; move with
+WASD or the arrow keys, dash with space.  `REMOTE_WEBGPU_PORT=9000`
+changes the port; the page connects back to whatever origin served it, or
+to `?server=ws://host:port` if given.  `cargo run -p bevy_pbr_game --
+--frames 30 --screenshot shot.png` renders headlessly and exits, which is
+how it is tested.
+
 | Directory | What it is |
 | --- | --- |
 | `proto/` | The wire protocol, as protobuf messages.  Each binary websocket message carries one or more size-prefixed serialized `Envelope`s. |
@@ -11,7 +35,7 @@ browser tab exposing `navigator.gpu`).
 | `client/` | `remote-webgpu-client`, the TypeScript client library.  Connects to the server, obtains a local adapter/device from `navigator.gpu` and performs the handshake. |
 | `example_client/` | Web page with a full-screen canvas that uses the client library. |
 | `example_server/` | Native example app (spinning triangle) built on `remote_webgpu`.  Owns all the websocket code, hands the library a send callback, pumps received messages into it, and renders at whatever size the client reports for its canvas — no window system needed server-side. |
-| `rust/` | Rust crates: a drop-in `wgpu` replacement backed by `remote_webgpu`, a `winit`-compatible event loop that runs the websocket server instead of opening a window, plus the FFI/runtime crates underneath (see `rust/README.md`).  Multiple clients can connect; each becomes its own `Window` with its own `Adapter`.  `./run_wgpu_example.sh <name>` runs any upstream wgpu demo against them; `cargo run -p bevy_pbr_game` (bevy's real PBR pipeline, via a vendored multi-render-world `bevy_render` fork) is an example Bevy games wher every connected tab is one player's view into the same world. |
+| `rust/` | Rust crates: a drop-in `wgpu` replacement backed by `remote_webgpu`, a `winit`-compatible event loop that runs the websocket server instead of opening a window, plus the FFI/runtime crates underneath (see `rust/README.md`).  Multiple clients can connect; each becomes its own `Window` with its own `Adapter`.  `./run_wgpu_example.sh <name>` runs any upstream wgpu demo against them; `cargo run -p bevy_pbr_game` (bevy's real PBR pipeline, via a vendored multi-render-world `bevy_render` fork) is the main demo, see the quick start above. |
 | `e2e/` | End-to-end tests, one executable per feature: `./e2e/run.sh` builds everything, starts a native test server and a headless chromium per test, and verifies buffers, compute, rendering, queries, error scopes and readbacks over a real websocket -- plus a bit-for-bit golden-screenshot comparison of the spinning-triangle demo. |
 
 ## Protocol so far
@@ -86,8 +110,10 @@ cd ../example_client && npm install
 npm run serve        # bundles and serves http://127.0.0.1:8000
 ```
 
-Open <http://127.0.0.1:8000> (append `?server=ws://host:port` for a
-non-default server).  The page connects and the spinning red triangle the
+Open <http://127.0.0.1:8000/?server=ws://127.0.0.1:8080> (the page
+connects to the origin that served it unless `?server=ws://host:port`
+says otherwise, and here that is esbuild's dev server rather than the
+native server).  The page connects and the spinning red triangle the
 server draws appears full-screen on the page's canvas, rendered by the
 browser's GPU, with a live FPS counter in the corner.  Resizing the browser
 window resizes the render, and a small green triangle follows the mouse

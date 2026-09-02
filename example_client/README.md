@@ -15,8 +15,10 @@ npm run build
 ```
 
 Start the native server first (`../example_server`, listening on port 8080
-by default), then open the page.  Use `?server=ws://host:port` to point it
-at a different server.  Connection progress is shown in the overlay at the
+by default), then open the page.  The page connects to the origin that
+served it -- which is right when the server hosts the page itself, as
+`bevy_pbr_game` does -- so when serving it from esbuild use
+`?server=ws://127.0.0.1:8080` to point it at the native server.  Connection progress is shown in the overlay at the
 bottom-left; the canvas shows whatever the server renders (the spinning red
 triangle).  Note the canvas backing size is dictated by the server's window
 size once connected.

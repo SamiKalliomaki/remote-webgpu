@@ -34,9 +34,15 @@ setInterval(() => {
   byteCount = 0;
 }, 1000);
 
-/* The server to attach to; override with ?server=ws://host:port */
+/* The server to attach to; override with ?server=ws://host:port.  By
+ * default the page assumes the server is what served it (bevy_pbr_game hosts
+ * this page on its websocket port), falling back to localhost:8080 when the
+ * page was opened from disk. */
 const params = new URLSearchParams(location.search);
-const url = params.get("server") ?? `ws://${location.hostname || "localhost"}:8080`;
+const url = params.get("server") ??
+  (location.protocol.startsWith("http") && location.host
+    ? `ws://${location.host}`
+    : "ws://localhost:8080");
 
 try {
   const client = await RemoteGpuClient.connect(url, {

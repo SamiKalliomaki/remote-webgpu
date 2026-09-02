@@ -3,6 +3,7 @@ name = "bevy_pbr_game"
 version = "0.1.0"
 edition = "2021"
 publish = false
+build = "build.rs"
 
 [dependencies]
 bevy = { version = "0.19", default-features = false, features = [

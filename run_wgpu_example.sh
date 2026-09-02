@@ -12,7 +12,8 @@
 #
 # Then open the web client (see example_client/README.md):
 #   cd client && npm install && cd ../example_client && npm install && npm run serve
-#   -> http://127.0.0.1:8000/?server=ws://127.0.0.1:8080
+#   -> http://127.0.0.1:8000/?server=ws://127.0.0.1:8080 (the page connects
+#      to its own origin unless ?server= says otherwise)
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
