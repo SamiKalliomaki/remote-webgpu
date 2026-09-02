@@ -123,6 +123,15 @@ websocket port (8000, unless `REMOTE_WEBGPU_PORT` says otherwise), so players ju
 connects back to the origin that served it).  Move with WASD or the arrow
 keys, dash with space.
 
+To host it in a container, build from the repository root (the crate
+embeds `../../example_client` and compiles `../../remote_webgpu`, so the
+whole tree is the build context):
+
+```sh
+docker build -f rust/bevy_pbr_game/Dockerfile -t bevy_pbr_game .
+docker run --rm -p 8000:8000 bevy_pbr_game
+```
+
 One `App` holds the shared world; the
 first tab's GPU becomes the built-in `RenderApp` (created with
 `RenderCreation::Manual` on that client's adapter/device), and every later

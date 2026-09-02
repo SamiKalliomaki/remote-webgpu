@@ -1,0 +1,12 @@
+# Keep the docker build context small: only sources are needed.
+.git
+.jj
+**/node_modules
+**/dist
+**/build
+rust/target
+rust/.wgpu-examples
+e2e
+compile_commands.json
+*.log
+*.ppm
