@@ -21,7 +21,7 @@ use std::net::{TcpListener, TcpStream};
 use std::os::raw::c_void;
 use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
 use remote_wgpu_sys as sys;
@@ -65,13 +65,10 @@ pub trait HasRemoteClient {
 
 impl HasRemoteClient for Client {
     fn remote_client(&self) -> Arc<Client> {
-        // Every Client the runtime hands out lives in the registry's Arcs,
-        // so a plain reference can be re-wrapped by looking it up again.
-        runtime()
-            .clients()
-            .into_iter()
-            .find(|client| client.id() == self.id())
-            .expect("Client is not registered with the runtime")
+        // Every Client is built with `Arc::new_cyclic` and remembers its
+        // own weak handle; a caller holding `&Client` keeps the strong
+        // count above zero, so the upgrade cannot fail outside `drop`.
+        self.this.upgrade().expect("Client::remote_client called during drop")
     }
 }
 
@@ -87,6 +84,10 @@ impl<T: HasRemoteClient> HasRemoteClient for &T {
     }
 }
 
+/// What the C library's send callback gets as `userdata`.  Boxed and owned
+/// by the [`Client`] so its address is stable for as long as the adapter
+/// may call back; `wgpuRemoteAdapterDisconnect()` guarantees it never does
+/// once the connection is gone, which is what lets `Client::drop` free it.
 struct SendCtx {
     id: u64,
     tx: Sender<Vec<u8>>,
@@ -186,10 +187,24 @@ impl Drop for CLockGuard<'_> {
 
 /// One connected browser client: its own remote instance/adapter plus the
 /// per-connection state (events, vsync pacing, liveness).
+///
+/// Ownership: the connection's reader thread holds a strong reference for
+/// as long as the socket is open, and so does the `unclaimed` queue until a
+/// window claims the client.  Once the connection ends both let go, and the
+/// application's own handles (a `Window`, an `Adapter`, a `Device`, a
+/// `Surface`) are all that keep the client alive.  When the last of those
+/// drops, [`Client::drop`] releases the C instance and adapter.
 pub struct Client {
     id: u64,
     instance: sys::WGPUInstance,
     adapter: sys::WGPUAdapter,
+    /// The `userdata` the C adapter sends through; see [`SendCtx`].  Held
+    /// for its address only, and freed by `drop` after the adapter has been
+    /// severed from it.
+    #[allow(dead_code)]
+    send_ctx: Box<SendCtx>,
+    /// Weak self-handle, so `&Client` can be turned back into an `Arc`.
+    this: Weak<Client>,
 
     events: Mutex<VecDeque<ClientEvent>>,
     disconnected: AtomicBool,
@@ -200,6 +215,31 @@ pub struct Client {
 // The raw handles are only ever used under the runtime lock.
 unsafe impl Send for Client {}
 unsafe impl Sync for Client {}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        // Runs on whichever thread drops the last handle; the C lock is
+        // reentrant, so that may be a thread already inside the library.
+        let _guard = runtime().lock();
+        unsafe {
+            // Normally already done by `mark_disconnected`; repeating it is
+            // harmless and makes freeing `send_ctx` below sound on every
+            // path.  No callback can resurrect this client: the vsync
+            // callback is the only one holding a strong reference, and a
+            // pending one would have kept us from getting here.
+            remote_sys::wgpuRemoteAdapterDisconnect(self.adapter);
+            // Devices, buffers and surfaces created on this adapter hold
+            // their own C references to it (and through it, the instance),
+            // so these two only drop *our* references: the C objects go
+            // when the last wrapper does, in whatever order that happens.
+            sys::wgpuAdapterRelease(self.adapter);
+            sys::wgpuInstanceRelease(self.instance);
+        }
+        // `send_ctx` is freed after this body, once the adapter is
+        // guaranteed never to call `send_cb` again.
+        eprintln!("remote-wgpu: client #{} released", self.id);
+    }
+}
 
 impl Client {
     /// Small integer identifying this client (1 for the first connection).
@@ -264,9 +304,12 @@ pub struct Runtime {
     progress: Mutex<u64>,
     progress_cond: Condvar,
 
-    /// Every client that completed the handshake, in connection order.
-    clients: Mutex<Vec<Arc<Client>>>,
-    /// Connected clients not yet claimed by a `Window`.
+    /// Every connected client that completed the handshake, in connection
+    /// order.  Weak on purpose: the runtime does not own clients (see
+    /// [`Client`]), it only lists them, and entries leave on disconnect.
+    clients: Mutex<Vec<Weak<Client>>>,
+    /// Connected clients not yet claimed by a `Window`.  Strong: an
+    /// unclaimed client has no other owner besides its reader thread.
     unclaimed: Mutex<VecDeque<Arc<Client>>>,
 
     /// Static files served to plain HTTP requests on the websocket port,
@@ -561,7 +604,7 @@ impl Runtime {
         );
 
         let (tx, rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = std::sync::mpsc::channel();
-        let send_ctx = Box::leak(Box::new(SendCtx { id, tx }));
+        let send_ctx = Box::new(SendCtx { id, tx });
 
         std::thread::Builder::new()
             .name(format!("remote-wgpu-writer-{id}"))
@@ -592,7 +635,7 @@ impl Runtime {
                 let _ = write_ws.close(None);
             })?;
 
-        let (instance, adapter) = {
+        let client = {
             let _guard = self.lock();
             unsafe {
                 let instance = sys::wgpuCreateInstance(std::ptr::null());
@@ -600,39 +643,56 @@ impl Runtime {
                 let adapter = remote_sys::wgpuRemoteInstanceCreateAdapter(
                     instance,
                     Some(send_cb),
-                    send_ctx as *mut SendCtx as *mut c_void,
+                    &*send_ctx as *const SendCtx as *mut c_void,
                 );
                 assert!(!adapter.is_null(), "wgpuRemoteInstanceCreateAdapter failed");
-                (instance, adapter)
+                Arc::new_cyclic(|this| Client {
+                    id,
+                    instance,
+                    adapter,
+                    send_ctx,
+                    this: this.clone(),
+                    events: Mutex::new(VecDeque::new()),
+                    disconnected: AtomicBool::new(false),
+                    vsync_pending: AtomicU64::new(0),
+                })
             }
         };
 
-        let client = Arc::new(Client {
-            id,
-            instance,
-            adapter,
-            events: Mutex::new(VecDeque::new()),
-            disconnected: AtomicBool::new(false),
-            vsync_pending: AtomicU64::new(0),
-        });
-
         {
             let _guard = self.lock();
-            // The callback borrows the client for the connection's lifetime;
-            // hand it a leaked strong reference.
-            let callback_ref = Arc::into_raw(client.clone());
+            // Events only ever fire from `wgpuRemoteAdapterReceiveData`,
+            // which only this thread calls, and this thread holds `client`
+            // until `mark_disconnected` has cleared the callback again: a
+            // plain pointer is enough, no reference needs to be leaked.
             unsafe {
                 remote_sys::wgpuRemoteAdapterSetEventCallback(
-                    adapter,
+                    client.adapter,
                     remote_sys::WGPURemoteEventCallbackInfo {
                         callback: Some(event_cb),
-                        userdata1: callback_ref as *mut c_void,
+                        userdata1: Arc::as_ptr(&client) as *mut c_void,
                         userdata2: std::ptr::null_mut(),
                     },
                 );
             }
         }
 
+        // Whatever happens from here on -- a failed handshake, a protocol
+        // violation, a plain hang-up -- ends with the same teardown.
+        let result = self.pump_client(&client, &mut read_ws);
+        self.mark_disconnected(&client);
+        result
+    }
+
+    /// The connection's reader loop: finish the handshake, publish the
+    /// client, then feed every websocket message into the library until
+    /// the socket closes or the client breaks the protocol.
+    fn pump_client(
+        &'static self,
+        client: &Arc<Client>,
+        read_ws: &mut tungstenite::WebSocket<TcpStream>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let id = client.id;
         // Pump until the client's hello arrives; this thread is the
         // connection's only reader, so pump inline.
         while {
@@ -663,7 +723,7 @@ impl Runtime {
         // for as long as it likes; drop the deadline.
         read_ws.get_ref().set_read_timeout(None)?;
 
-        self.clients.lock().unwrap().push(client.clone());
+        self.clients.lock().unwrap().push(Arc::downgrade(client));
         self.unclaimed.lock().unwrap().push_back(client.clone());
         self.notify();
 
@@ -692,12 +752,10 @@ impl Runtime {
                     self.notify();
                     if !healthy {
                         eprintln!("remote-wgpu: client #{id} broke the protocol; disconnecting");
-                        self.mark_disconnected(&client);
                         return Ok(());
                     }
                 }
                 Ok(tungstenite::Message::Close(_)) | Err(_) => {
-                    self.mark_disconnected(&client);
                     eprintln!("remote-wgpu: client #{id} disconnected");
                     return Ok(());
                 }
@@ -706,18 +764,31 @@ impl Runtime {
         }
     }
 
-    /// Mark a client gone and tell whoever is polling it.
+    /// The connection is over: sever the client from the transport, drop
+    /// the runtime's references to it and tell whoever is polling it.
+    /// Called exactly once per client, by its reader thread, which still
+    /// holds the client.
     fn mark_disconnected(&self, client: &Arc<Client>) {
         client.disconnected.store(true, Ordering::SeqCst);
         {
-            // No reply will ever come for what this client still owed us.
-            // Failing those requests fires their callbacks (so nothing
-            // waits on a map or a work-done forever) and drops the
-            // references they hold, which would otherwise keep the whole
-            // session alive as a reference cycle.
+            // No reply will ever come for what this client still owed us,
+            // and nothing can be sent to it any more.  Failing the pending
+            // requests fires their callbacks (so nothing waits on a map or
+            // a work-done forever) and drops the references they hold,
+            // which would otherwise keep the whole session alive as a
+            // reference cycle.  This also clears the event callback, whose
+            // userdata pointed at `client` without owning it.
             let _guard = self.lock();
-            unsafe { remote_sys::wgpuRemoteAdapterAbandonRequests(client.adapter) };
+            unsafe { remote_sys::wgpuRemoteAdapterDisconnect(client.adapter) };
         }
+        self.clients
+            .lock()
+            .unwrap()
+            .retain(|entry| !std::ptr::eq(entry.as_ptr(), Arc::as_ptr(client)));
+        self.unclaimed
+            .lock()
+            .unwrap()
+            .retain(|entry| !Arc::ptr_eq(entry, client));
         client
             .events
             .lock()
@@ -802,8 +873,8 @@ impl Runtime {
         let mut announced = false;
         let mut result = None;
         self.wait_until(|| {
-            if let Some(client) = self.clients.lock().unwrap().first() {
-                result = Some(client.clone());
+            if let Some(client) = self.clients().into_iter().next() {
+                result = Some(client);
                 return true;
             }
             if !announced {
@@ -818,10 +889,16 @@ impl Runtime {
         result.unwrap()
     }
 
-    /// Every client that has completed the handshake, in connection order
-    /// (including disconnected ones).
+    /// Every connected client that has completed the handshake, in
+    /// connection order.  A client leaves the list the moment its
+    /// connection ends, whether or not the application still holds it.
     pub fn clients(&self) -> Vec<Arc<Client>> {
-        self.clients.lock().unwrap().clone()
+        self.clients
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect()
     }
 }
 

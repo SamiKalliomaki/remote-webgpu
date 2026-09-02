@@ -9,3 +9,5 @@ publish = false
 remote-wgpu-sys = { path = "../remote-wgpu-sys" }
 tungstenite = "0.24"
 log = "0.4"
+
+[dev-dependencies]

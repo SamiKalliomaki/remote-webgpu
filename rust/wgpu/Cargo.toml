@@ -47,6 +47,7 @@ wgsl = []
 [dev-dependencies]
 winit = { path = "../winit" }
 pollster = "0.4"
+tungstenite = "0.24"
 
 [[example]]
 name = "multi_client"

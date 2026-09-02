@@ -76,6 +76,8 @@ typedef struct RemoteAdapter {
     RemoteObject obj;
     RemoteInstance *instance;
     /* How protocol messages reach the remote GPU; owned by the app. */
+    /* NULL once wgpuRemoteAdapterDisconnect() has severed the transport:
+     * nothing is sent any more and send_userdata must not be touched. */
     WGPURemoteSendCallback send;
     void *send_userdata;
     /* Handshake state: ready once a valid ClientHello has been received,

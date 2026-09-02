@@ -64,6 +64,19 @@ WGPU_EXPORT void wgpuRemoteAdapterReceiveData(WGPUAdapter adapter,
  */
 WGPU_EXPORT void wgpuRemoteAdapterAbandonRequests(WGPUAdapter adapter);
 
+/*
+ * Sever the adapter from its transport: the connection is gone for good.
+ *
+ * Abandons every outstanding request (see wgpuRemoteAdapterAbandonRequests),
+ * forgets the event callback, and stops calling `send`.  From this call on
+ * the library never touches `send` or its `userdata` again, so the caller
+ * may free whatever `userdata` pointed at -- even though objects created
+ * on this adapter (devices, buffers, surfaces) may still be alive and
+ * released later; those releases become silent.  The adapter itself stays
+ * valid until its last reference is released.  Safe to call more than once.
+ */
+WGPU_EXPORT void wgpuRemoteAdapterDisconnect(WGPUAdapter adapter);
+
 /* True once the client's hello has been received and validated. */
 WGPU_EXPORT WGPUBool wgpuRemoteAdapterIsReady(WGPUAdapter adapter);
 

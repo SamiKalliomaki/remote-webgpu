@@ -3407,6 +3407,7 @@ dependencies = [
  "raw-window-handle",
  "remote-wgpu-runtime",
  "remote-wgpu-sys",
+ "tungstenite",
  "wgpu-types",
  "winit",
 ]

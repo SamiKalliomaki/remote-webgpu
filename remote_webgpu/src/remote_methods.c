@@ -1145,6 +1145,15 @@ WGPUFuture wgpuRemoteSurfaceOnNextVsync(WGPUSurface surface,
         return future;
 
     RemoteAdapter *adapter = rw_device_adapter(self->device);
+    if (!adapter->send) {
+        /* Disconnected: no PresentDone will ever arrive.  Resolve the wait
+         * on the spot rather than queue something nothing can complete. */
+        future.id = rw_next_future_id(adapter);
+        rw_future_complete(adapter->instance, future.id);
+        if (callbackInfo.callback)
+            callbackInfo.callback(callbackInfo.userdata1, callbackInfo.userdata2);
+        return future;
+    }
     RwVsyncWait *wait = calloc(1, sizeof *wait);
     if (!wait)
         return future;

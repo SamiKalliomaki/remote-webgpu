@@ -179,3 +179,7 @@ makes every `Time` delta meaningless; the `std` feature is required.
 - `remote-wgpu-sys` regenerates nothing at build time except the protobuf
   code; after changing `webgpu.h`, re-run
   `python3 tools/generate_ffi.py` in `remote-wgpu-sys/`.
+- A client that disconnects is never released: its `Client`, C
+  instance/adapter and surface are retained for the life of the process, so
+  repeated connects grow memory without bound.  Known and unfixed; see
+  [`docs/client-lifetime-leak.md`](../docs/client-lifetime-leak.md).

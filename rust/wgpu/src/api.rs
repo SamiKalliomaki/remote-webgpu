@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Range, RangeBounds};
 use std::os::raw::c_void;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::task::{Context, Poll, Waker};
 
 use remote_wgpu_runtime::{runtime, Client, HasRemoteClient, Runtime};
@@ -131,7 +131,28 @@ owned_handle!(OwnedComputePipeline, sys::WGPUComputePipeline, sys::wgpuComputePi
 owned_handle!(OwnedCommandBuffer, sys::WGPUCommandBuffer, sys::wgpuCommandBufferRelease);
 owned_handle!(OwnedRenderBundle, sys::WGPURenderBundle, sys::wgpuRenderBundleRelease);
 owned_handle!(OwnedQuerySet, sys::WGPUQuerySet, sys::wgpuQuerySetRelease);
-owned_handle!(OwnedDevice, sys::WGPUDevice, sys::wgpuDeviceRelease);
+/// Like the `owned_handle!` wrappers, plus the device's uncaptured-error
+/// handler goes with it.  The handler table is keyed by raw device address
+/// and must be cleaned up *before* the C device is released, under the C
+/// lock, so the address cannot be recycled for a new device in between.
+pub(crate) struct OwnedDevice(pub(crate) sys::WGPUDevice);
+unsafe impl Send for OwnedDevice {}
+unsafe impl Sync for OwnedDevice {}
+impl Drop for OwnedDevice {
+    fn drop(&mut self) {
+        let handler = {
+            let _guard = rt().lock();
+            let handler = uncaptured_error_handlers()
+                .as_mut()
+                .and_then(|handlers| handlers.remove(&(self.0 as usize)));
+            unsafe { sys::wgpuDeviceRelease(self.0) };
+            handler
+        };
+        // The handler is application code that may own anything; drop it
+        // with no locks held.
+        drop(handler);
+    }
+}
 owned_handle!(OwnedQueue, sys::WGPUQueue, sys::wgpuQueueRelease);
 owned_handle!(OwnedSurface, sys::WGPUSurface, sys::wgpuSurfaceRelease);
 
@@ -257,8 +278,14 @@ pub(crate) struct SurfaceShared {
 }
 
 /// One canvas per client, so one surface per client, shared by however
-/// many `Surface` handles are created for it.
-static SURFACES: OnceLock<Mutex<std::collections::HashMap<u64, Arc<SurfaceShared>>>> =
+/// many `Surface` handles are created for it while any of them lives.
+///
+/// The table only *finds* surfaces, it does not own them: the `Surface`
+/// handles do.  When the application drops the last handle the C surface,
+/// the configured device and the client reference go with it, and a later
+/// `create_surface` for the same client (or a reconnected one reusing the
+/// id) simply builds a fresh one.  Dead entries are swept on insert.
+static SURFACES: OnceLock<Mutex<std::collections::HashMap<u64, Weak<SurfaceShared>>>> =
     OnceLock::new();
 
 fn surface_shared(client: Arc<Client>) -> Arc<SurfaceShared> {
@@ -266,22 +293,25 @@ fn surface_shared(client: Arc<Client>) -> Arc<SurfaceShared> {
         .get_or_init(|| Mutex::new(std::collections::HashMap::new()))
         .lock()
         .unwrap();
-    registry
-        .entry(client.id())
-        .or_insert_with(|| {
-            let _guard = rt().lock();
-            let mut desc: sys::WGPUSurfaceDescriptor = unsafe { std::mem::zeroed() };
-            desc.label = sv(Some("remote canvas"));
-            let raw = unsafe { sys::wgpuInstanceCreateSurface(client.instance(), &desc) };
-            assert!(!raw.is_null(), "failed to create the remote surface");
-            Arc::new(SurfaceShared {
-                client,
-                raw: OwnedSurface(raw),
-                config: Mutex::new(None),
-                device: Mutex::new(None),
-            })
+    if let Some(shared) = registry.get(&client.id()).and_then(Weak::upgrade) {
+        return shared;
+    }
+    registry.retain(|_, entry| entry.strong_count() > 0);
+    let shared = {
+        let _guard = rt().lock();
+        let mut desc: sys::WGPUSurfaceDescriptor = unsafe { std::mem::zeroed() };
+        desc.label = sv(Some("remote canvas"));
+        let raw = unsafe { sys::wgpuInstanceCreateSurface(client.instance(), &desc) };
+        assert!(!raw.is_null(), "failed to create the remote surface");
+        Arc::new(SurfaceShared {
+            client,
+            raw: OwnedSurface(raw),
+            config: Mutex::new(None),
+            device: Mutex::new(None),
         })
-        .clone()
+    };
+    registry.insert(shared.client.id(), Arc::downgrade(&shared));
+    shared
 }
 
 // ---------------------------------------------------------------------
@@ -543,6 +573,8 @@ unsafe extern "C" fn uncaptured_error_cb(
 #[derive(Clone)]
 pub struct Device {
     inner: Arc<OwnedDevice>,
+    /// Keeps the client (and so its C adapter and instance) alive for as
+    /// long as any handle to the device exists.
     client: Arc<Client>,
 }
 
@@ -1160,15 +1192,20 @@ impl ErrorScopeGuard {
             }
         }
 
+        // Take the device out without running `Drop`, which would pop the
+        // scope a second time.  (`mem::forget(self)` would leak the device
+        // handle -- and with it the client -- once per scope.)
+        let this = std::mem::ManuallyDrop::new(self);
+        // SAFETY: `this` is never dropped, so the field is moved out once.
+        let device = unsafe { std::ptr::read(&this.device) };
         {
             let _guard = rt().lock();
             let mut cb: sys::WGPUPopErrorScopeCallbackInfo = unsafe { std::mem::zeroed() };
             cb.mode = sys::WGPUCallbackMode_AllowProcessEvents;
             cb.callback = Some(on_pop);
             cb.userdata1 = Box::into_raw(Box::new(handle)) as *mut c_void;
-            unsafe { sys::wgpuDevicePopErrorScope(self.device.raw(), cb) };
+            unsafe { sys::wgpuDevicePopErrorScope(device.raw(), cb) };
         }
-        std::mem::forget(self);
         future
     }
 }
@@ -2793,8 +2830,10 @@ impl SurfaceTexture {
         let mut cb: remote_sys::WGPURemoteVsyncCallbackInfo = unsafe { std::mem::zeroed() };
         cb.callback = Some(vsync_cb);
         cb.userdata1 = Arc::into_raw(client.clone()) as *mut c_void;
-        unsafe { remote_sys::wgpuRemoteSurfaceOnNextVsync(self.surface.raw.0, cb) };
+        // Count the frame before registering: on a disconnected client the
+        // callback fires synchronously from inside the call.
         client.vsync_requested();
+        unsafe { remote_sys::wgpuRemoteSurfaceOnNextVsync(self.surface.raw.0, cb) };
     }
 }
 

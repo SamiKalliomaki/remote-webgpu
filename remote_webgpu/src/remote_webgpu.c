@@ -148,6 +148,17 @@ char *rw_dup_stringview(WGPUStringView s)
 
 void rw_send_envelope(RemoteAdapter *adapter, const RemoteWebgpu__Envelope *envelope)
 {
+    if (!adapter->send) {
+        /* Disconnected.  Whatever this message asked of the client will
+         * never be answered, so fail any request queued for it right away
+         * (every request is queued before its message is sent, and no
+         * caller touches the request afterwards); otherwise a map or a
+         * work-done issued in the window between the connection ending
+         * and the application noticing would pend forever, holding its
+         * object -- and through it the whole session -- alive. */
+        wgpuRemoteAdapterAbandonRequests((WGPUAdapter)adapter);
+        return;
+    }
     size_t len = remote_webgpu__envelope__get_packed_size(envelope);
     uint8_t *buf = malloc(len ? len : 1);
     if (!buf)
@@ -678,6 +689,18 @@ void wgpuRemoteAdapterAbandonRequests(WGPUAdapter adapter)
                                     wait->callback.userdata2);
         free(wait);
     }
+}
+
+void wgpuRemoteAdapterDisconnect(WGPUAdapter adapter)
+{
+    RemoteAdapter *self = (RemoteAdapter *)adapter;
+    /* Stop sending first: abandoning requests releases handles, and a
+     * release sends DestroyObject, which has nowhere to go any more. */
+    self->send = NULL;
+    self->send_userdata = NULL;
+    WGPURemoteEventCallbackInfo no_events = {0};
+    self->event_callback = no_events;
+    wgpuRemoteAdapterAbandonRequests(adapter);
 }
 
 void wgpuRemoteAdapterSetEventCallback(WGPUAdapter adapter,
