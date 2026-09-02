@@ -9,7 +9,7 @@ websocket protocol implemented by `../remote_webgpu`.
 | Crate | What it is |
 | --- | --- |
 | `remote-wgpu-sys` | Raw FFI bindings to the `remote_webgpu` C static library (built by `build.rs` with `cc` + `protoc`).  `src/ffi.rs` is generated from `webgpu.h` by `tools/generate_ffi.py`, together with a C-vs-Rust struct-size self-check (`cargo test -p remote-wgpu-sys`). |
-| `remote-wgpu-runtime` | The shared runtime both API crates rendezvous through: a websocket server (`REMOTE_WEBGPU_PORT`, default 8080) accepting any number of browser clients.  Each connection gets its own remote instance/adapter, reader thread, event queue (resizes, keys, pointer) and present/vsync pacing.  All C calls happen under one reentrant lock. |
+| `remote-wgpu-runtime` | The shared runtime both API crates rendezvous through: a websocket server accepting any number of browser clients on the port the application picks with `set_port()` (`REMOTE_WEBGPU_PORT` overrides it; there is no default).  Each connection gets its own remote instance/adapter, reader thread, event queue (resizes, keys, pointer) and present/vsync pacing.  All C calls happen under one reentrant lock. |
 | `wgpu` | The wgpu-compatible API, implementing the wgpu **29** public API on top of the real [`wgpu-types`](https://crates.io/crates/wgpu-types) 29 crate (so all plain data types are shared with any other crate compiled against wgpu 29 — bevy above all): instance/adapter/device/queue, buffers with mapping, textures/views/samplers, bind groups, render + compute pipelines and passes, render bundles, query sets, error scopes, the surface swapchain, `ShaderSource::Wgsl` and `ShaderSource::Naga` (Naga IR is written back out as WGSL for the browser), and `wgpu::util` (`DeviceExt`, `StagingBelt`, `TextureBlitter`, `include_wgsl!`, `vertex_attr_array!`). |
 | `bevy_render` | A vendored fork of bevy 0.19's renderer with **multi-render-world** support: one complete render world (device, pipeline cache, render graph) per connected browser tab, all extracting from the one main world.  See [The bevy_render fork](#the-bevy_render-fork). |
 | `bevy_pbr_game` | The same idea on bevy's real 3D pipeline: `bevy_pbr` renders the shared world once per player, each on that player's own GPU, through the `bevy_render` fork.  See [The bevy_pbr example game](#the-bevy_pbr-example-game). |
@@ -118,7 +118,8 @@ character spawned into the shared arena and a camera following it, so
 the players walk around the same world, each watching from their own
 machine's GPU.  The game also hosts the web client itself -- `build.rs`
 bundles `../example_client` with `npm` and the binary serves it on the
-websocket port, so players just open <http://localhost:8080> (the page
+websocket port (8000, unless `REMOTE_WEBGPU_PORT` says otherwise), so players just open
+<http://localhost:8000> (the page
 connects back to the origin that served it).  Move with WASD or the arrow
 keys, dash with space.
 

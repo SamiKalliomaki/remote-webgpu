@@ -19,7 +19,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::raw::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
@@ -265,6 +265,17 @@ struct StaticFile {
 }
 
 static RUNTIME: OnceLock<&'static Runtime> = OnceLock::new();
+static PORT: AtomicU16 = AtomicU16::new(0);
+
+/// Choose the port the runtime listens on.  The runtime has no default:
+/// every application must call this before the runtime starts (before the
+/// first call to [`runtime`] or any wgpu/winit API), or set the
+/// `REMOTE_WEBGPU_PORT` environment variable, which takes precedence
+/// (the way to point an unmodified upstream application at a port).
+pub fn set_port(port: u16) {
+    assert!(port != 0, "remote-wgpu: port 0 is not a valid listen port");
+    PORT.store(port, Ordering::Relaxed);
+}
 
 /// The global runtime, started on first use: binds the websocket port and
 /// begins accepting clients in the background.  Nothing blocks until
@@ -330,10 +341,19 @@ unsafe extern "C" fn event_cb(
 
 impl Runtime {
     fn start() -> &'static Runtime {
-        let port: u16 = std::env::var("REMOTE_WEBGPU_PORT")
-            .ok()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(8080);
+        let port: u16 = match std::env::var("REMOTE_WEBGPU_PORT") {
+            Ok(value) => value.parse().unwrap_or_else(|_| {
+                panic!("remote-wgpu: REMOTE_WEBGPU_PORT={value:?} is not a port number")
+            }),
+            Err(_) => match PORT.load(Ordering::Relaxed) {
+                0 => panic!(
+                    "remote-wgpu: no port configured; call \
+                     remote_wgpu_runtime::set_port() before using wgpu/winit, \
+                     or set REMOTE_WEBGPU_PORT"
+                ),
+                port => port,
+            },
+        };
         let listener = TcpListener::bind(("0.0.0.0", port))
             .unwrap_or_else(|e| panic!("remote-wgpu: failed to bind port {port}: {e}"));
         eprintln!("remote-wgpu: accepting clients on ws://localhost:{port}");
@@ -729,5 +749,15 @@ impl Runtime {
     /// (including disconnected ones).
     pub fn clients(&self) -> Vec<Arc<Client>> {
         self.clients.lock().unwrap().clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[should_panic(expected = "no port configured")]
+    fn runtime_requires_a_port() {
+        std::env::remove_var("REMOTE_WEBGPU_PORT");
+        super::runtime();
     }
 }

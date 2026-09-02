@@ -85,5 +85,8 @@ PYEOF
     touch "$CHECKOUT_DIR/.remote-webgpu-prepared"
 fi
 
+# The runtime has no built-in port; unmodified upstream apps get theirs
+# from the environment.
+export REMOTE_WEBGPU_PORT="${REMOTE_WEBGPU_PORT:-8080}"
 cd "$CHECKOUT_DIR"
 exec cargo run -p wgpu-examples --bin wgpu-examples -- "$@"

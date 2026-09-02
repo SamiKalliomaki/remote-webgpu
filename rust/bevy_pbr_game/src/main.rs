@@ -1,7 +1,7 @@
 //! One Bevy game, many players, each rendering with `bevy_pbr`'s standard
 //! mesh pipeline on their own remote GPU.
 //!
-//! Run with `cargo run -p bevy_pbr_game`, then open <http://localhost:8080>
+//! Run with `cargo run -p bevy_pbr_game`, then open <http://localhost:8000>
 //! in as many tabs as you like: the game serves the web client
 //! (`example_client/`) on the same port the client connects to.  The first tab starts the game;
 //! every further tab gets its own character and its own camera into the same
@@ -532,6 +532,7 @@ const CLIENT_BUNDLE: &[u8] = include_bytes!("../../../example_client/dist/main.j
 const CLIENT_BUNDLE_MAP: &[u8] = include_bytes!("../../../example_client/dist/main.js.map");
 
 fn main() {
+    remote_wgpu_runtime::set_port(8000);
     let runtime = runtime();
     runtime.serve_static("/", "text/html; charset=utf-8", CLIENT_INDEX);
     runtime.serve_static("/dist/main.js", "text/javascript; charset=utf-8", CLIENT_BUNDLE);

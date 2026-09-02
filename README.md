@@ -19,7 +19,7 @@ cd rust
 cargo run --release -p bevy_pbr_game     # builds the client bundle too
 ```
 
-Then open <http://localhost:8080> in a WebGPU-capable browser (Chrome /
+Then open <http://localhost:8000> in a WebGPU-capable browser (Chrome /
 Edge, or Firefox with WebGPU enabled), on any machine that can reach the
 server.  Every tab that opens the page joins as a new player; move with
 WASD or the arrow keys, dash with space.  `REMOTE_WEBGPU_PORT=9000`

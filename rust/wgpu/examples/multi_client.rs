@@ -164,6 +164,7 @@ impl ApplicationHandler for App {
 }
 
 fn main() {
+    remote_wgpu_runtime::set_port(8080);
     let event_loop = EventLoop::new().unwrap();
     event_loop.run_app(&mut App::default()).unwrap();
     eprintln!("multi_client: all clients disconnected, exiting");
