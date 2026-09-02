@@ -1,0 +1,47 @@
+# libFuzzer dictionary for the client -> server protocol.
+#
+# Protobuf tags are varints of (field_number << 3) | wire_type, which the
+# mutator is unlikely to stumble on by itself; handing it the tag of every
+# Envelope variant a client may send lets it reach each handler.  See the
+# Envelope message in proto/remote_webgpu.proto.
+
+envelope_client_hello="\x12"
+envelope_error="\x1a"
+envelope_present_done="\x92\x03"
+envelope_map_buffer_data="\x9a\x03"
+envelope_event="\xa2\x03"
+envelope_error_scope_result="\xd2\x05"
+envelope_work_done="\xda\x05"
+envelope_compilation_info="\xe2\x05"
+envelope_uncaptured_error="\xea\x05"
+envelope_device_lost="\xf2\x05"
+envelope_texture_loaded="\xfa\x05"
+
+# Sub-message tags that appear inside those: request_id / first varint
+# field, the length-delimited second field (payload, message, limits), and
+# the Event oneof arms (canvas_resize = 1, user = 2).
+field_1_varint="\x08"
+field_2_varint="\x10"
+field_3_varint="\x18"
+field_1_bytes="\x0a"
+field_2_bytes="\x12"
+field_4_varint="\x20"
+field_5_varint="\x28"
+
+# The protocol version a ClientHello must carry to be accepted.
+protocol_version_6="\x08\x06"
+
+# Interesting request ids: the session leaves requests 1..5 outstanding.
+request_id_1="\x08\x01"
+request_id_2="\x08\x02"
+request_id_3="\x08\x03"
+request_id_4="\x08\x04"
+request_id_5="\x08\x05"
+
+# Saturated 32- and 64-bit varints, the shape of every clamp bug.
+u32_max="\xff\xff\xff\xff\x0f"
+u64_max="\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"
+
+# The transport's size prefix: a plausible one and a lying one.
+frame_small="\x10\x00\x00\x00"
+frame_huge="\xf0\xff\xff\xff"

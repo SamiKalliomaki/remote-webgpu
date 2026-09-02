@@ -190,6 +190,10 @@ fail:
 
 void gpu_teardown(GpuContext *ctx)
 {
+    /* Requests the client never answered hold references (and a reference
+     * cycle through the device and adapter); the connection is over, so
+     * fail them before letting go of anything. */
+    if (ctx->adapter)  wgpuRemoteAdapterAbandonRequests(ctx->adapter);
     if (ctx->queue)    wgpuQueueRelease(ctx->queue);
     if (ctx->device)   wgpuDeviceRelease(ctx->device);
     if (ctx->adapter)  wgpuAdapterRelease(ctx->adapter);

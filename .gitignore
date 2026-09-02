@@ -31,3 +31,8 @@ npm-debug.log*
 .DS_Store
 rust/target/
 rust/.wgpu-examples/
+
+# Fuzzing: the clang build, the corpus it grows and the crashes it finds.
+e2e/fuzz/build/
+e2e/fuzz/corpus/
+e2e/fuzz/artifacts/

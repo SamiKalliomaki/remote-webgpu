@@ -49,6 +49,21 @@ WGPU_EXPORT WGPUAdapter wgpuRemoteInstanceCreateAdapter(WGPUInstance instance,
 WGPU_EXPORT void wgpuRemoteAdapterReceiveData(WGPUAdapter adapter,
                                               void const *data, size_t size);
 
+/*
+ * Fail every request still waiting for a reply from the client, as if the
+ * client had answered with an error: each callback fires with an aborted
+ * status, each future completes, and the references those requests held on
+ * the objects they were about (a buffer being mapped, a texture being
+ * loaded) are dropped.
+ *
+ * Call this when the connection is gone.  Until it is called, a request the
+ * client will never answer keeps its callback pending forever -- and its
+ * reference makes the object graph (buffer -> device -> adapter -> request)
+ * a cycle that nothing can free, so the whole session leaks.  Afterwards
+ * the adapter is still valid, just empty.
+ */
+WGPU_EXPORT void wgpuRemoteAdapterAbandonRequests(WGPUAdapter adapter);
+
 /* True once the client's hello has been received and validated. */
 WGPU_EXPORT WGPUBool wgpuRemoteAdapterIsReady(WGPUAdapter adapter);
 

@@ -709,6 +709,15 @@ impl Runtime {
     /// Mark a client gone and tell whoever is polling it.
     fn mark_disconnected(&self, client: &Arc<Client>) {
         client.disconnected.store(true, Ordering::SeqCst);
+        {
+            // No reply will ever come for what this client still owed us.
+            // Failing those requests fires their callbacks (so nothing
+            // waits on a map or a work-done forever) and drops the
+            // references they hold, which would otherwise keep the whole
+            // session alive as a reference cycle.
+            let _guard = self.lock();
+            unsafe { remote_sys::wgpuRemoteAdapterAbandonRequests(client.adapter) };
+        }
         client
             .events
             .lock()

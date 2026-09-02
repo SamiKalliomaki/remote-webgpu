@@ -31,22 +31,27 @@ CHROMIUM_FLAGS=(--headless=new --no-sandbox --disable-gpu-sandbox
 FEATURE_TESTS=(limits buffers compute render queries async image)
 RUN_GOLDEN=1
 RUN_HOSTILE=1
+RUN_FUZZ=1
 if [ "$#" -gt 0 ]; then
-    FEATURE_TESTS=("$@")
+    FEATURE_TESTS=()
     RUN_GOLDEN=0
     RUN_HOSTILE=0
-    # `./run.sh hostile` runs just the untrusted-client test.
+    RUN_FUZZ=0
+    # `./run.sh hostile fuzz` runs just those; anything else is a feature test.
     for arg in "$@"; do
-        if [ "$arg" = hostile ]; then
-            RUN_HOSTILE=1
-            FEATURE_TESTS=()
-        fi
+        case "$arg" in
+            hostile) RUN_HOSTILE=1 ;;
+            fuzz)    RUN_FUZZ=1 ;;
+            *)       FEATURE_TESTS+=("$arg") ;;
+        esac
     done
 fi
 
 PORT=${PORT:-8210}          # websocket ports: PORT, PORT+1, ...
 HTTP_PORT=$((PORT + 100))   # the web client is served here
 TIMEOUT=${TIMEOUT:-60}      # per test, seconds
+FUZZ_SECONDS=${FUZZ_SECONDS:-20}  # fuzzing budget in the suite; raise it for
+                                  # a real campaign, or use fuzz/run_libfuzzer.sh
 GOLDEN=golden/triangle.ppm
 
 WORK=$(mktemp -d /tmp/remote-webgpu-e2e.XXXXXX)
@@ -151,6 +156,41 @@ if [ "$RUN_HOSTILE" -eq 1 ]; then
         tail -10 "$WORK/hostile.client.log"
     else
         log "[hostile] OK"
+    fi
+fi
+
+# Fuzzing the client -> server direction.  The good tool is libFuzzer with
+# ASan and UBSan (fuzz/run_libfuzzer.sh, which needs clang); the fallback is
+# the same fuzz target driven by the seeded generator in fuzz/fuzz_main.c,
+# so this stage runs everywhere.  Either way the budget is small enough to
+# belong in a test suite -- it is a regression check, not a campaign.
+if [ "$RUN_FUZZ" -eq 1 ]; then
+    log "[fuzz] running (${FUZZ_SECONDS}s)..."
+    # Everything the fuzzer has ever found, replayed first: a regression
+    # fails here in a second instead of waiting to be rediscovered.
+    if ! ./build/fuzz_receive fuzz/regressions/*.bin > "$WORK/fuzz.regressions.log" 2>&1; then
+        FAILED=1
+        log "[fuzz] FAILED replaying the saved regressions:"
+        tail -20 "$WORK/fuzz.regressions.log"
+    fi
+    if command -v "${CLANG:-clang}" > /dev/null; then
+        log "[fuzz] using libFuzzer + ASan/UBSan"
+        ( cd fuzz && ./run_libfuzzer.sh -max_total_time="$FUZZ_SECONDS" ) \
+            > "$WORK/fuzz.log" 2>&1
+        rc=$?
+    else
+        log "[fuzz] no clang; using the built-in generator"
+        ./build/fuzz_receive --quiet --seconds "$FUZZ_SECONDS" --seed "${FUZZ_SEED:-1}" \
+            --artifact "$WORK/fuzz-crash.bin" > "$WORK/fuzz.log" 2>&1
+        rc=$?
+    fi
+    if [ "$rc" -ne 0 ]; then
+        FAILED=1
+        log "[fuzz] FAILED (exit $rc):"
+        tail -40 "$WORK/fuzz.log"
+        log "[fuzz] reproduce with: e2e/build/fuzz_receive <input>"
+    else
+        log "[fuzz] OK ($(tail -1 "$WORK/fuzz.log"))"
     fi
 fi
 

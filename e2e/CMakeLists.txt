@@ -16,6 +16,14 @@ set(EXAMPLE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../example_server/src)
 # against a fresh browser session.
 set(E2E_TESTS limits buffers compute render queries async image hostile)
 
+# Optional sanitizers for the whole tree (the fuzzer wants them):
+#   cmake -S . -B build -DE2E_SANITIZE=address,undefined
+set(E2E_SANITIZE "" CACHE STRING "sanitizers to build the tests with")
+if(E2E_SANITIZE)
+    add_compile_options(-fsanitize=${E2E_SANITIZE} -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=${E2E_SANITIZE})
+endif()
+
 foreach(test ${E2E_TESTS})
     add_executable(test_${test}
         src/test_${test}.c
@@ -28,3 +36,14 @@ foreach(test ${E2E_TESTS})
     target_include_directories(test_${test} PRIVATE src ${EXAMPLE_SRC})
     target_link_libraries(test_${test} PRIVATE remote_webgpu m)
 endforeach()
+
+# The fuzz target (fuzz/fuzz_target.c) is written against libFuzzer's entry
+# point; fuzz/run_libfuzzer.sh builds it with clang for real coverage-guided
+# fuzzing.  This binary is the portable fallback: the same target driven by
+# the seeded generator in fuzz/fuzz_main.c, so `run.sh fuzz` works on a box
+# with no clang, and so saved crash inputs can be replayed anywhere.
+add_executable(fuzz_receive
+    fuzz/fuzz_target.c
+    fuzz/fuzz_main.c)
+target_include_directories(fuzz_receive PRIVATE src fuzz ${EXAMPLE_SRC})
+target_link_libraries(fuzz_receive PRIVATE remote_webgpu m)

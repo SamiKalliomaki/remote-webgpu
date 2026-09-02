@@ -72,6 +72,7 @@ unsafe extern "C" {
         userdata: *mut c_void,
     ) -> WGPUAdapter;
     pub fn wgpuRemoteAdapterReceiveData(adapter: WGPUAdapter, data: *const c_void, size: usize);
+    pub fn wgpuRemoteAdapterAbandonRequests(adapter: WGPUAdapter);
     pub fn wgpuRemoteAdapterIsReady(adapter: WGPUAdapter) -> WGPUBool;
     pub fn wgpuRemoteAdapterGetCanvasSize(adapter: WGPUAdapter, width: *mut u32, height: *mut u32);
     pub fn wgpuRemoteAdapterSetEventCallback(

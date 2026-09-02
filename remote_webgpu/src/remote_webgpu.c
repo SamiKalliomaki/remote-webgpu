@@ -606,6 +606,80 @@ static void handle_event(RemoteAdapter *adapter, const RemoteWebgpu__Event *even
         callback.callback(&out, callback.userdata1, callback.userdata2);
 }
 
+void wgpuRemoteAdapterAbandonRequests(WGPUAdapter adapter)
+{
+    RemoteAdapter *self = (RemoteAdapter *)adapter;
+
+    /* Detach the list first: a callback may call back into the API (and
+     * releasing a handle sends a DestroyObject), so nothing may still be
+     * reachable through the adapter while we walk it. */
+    RwRequest *requests = self->requests;
+    self->requests = NULL;
+    while (requests) {
+        RwRequest *request = requests;
+        requests = request->next;
+        /* Copy it whole: the callbacks below run after it is freed. */
+        RwRequest pending = *request;
+        RemoteHandle *handle = pending.handle;
+        rw_future_complete(self->instance, pending.future_id);
+        free(request);
+
+        WGPUStringView why = sv("the connection to the client is gone");
+        switch (pending.type) {
+        case RW_REQUEST_MAP:
+            if (handle)
+                handle->map_state = WGPUBufferMapState_Unmapped;
+            if (pending.cb.map.callback)
+                pending.cb.map.callback(WGPUMapAsyncStatus_Aborted, why,
+                                pending.cb.map.userdata1, pending.cb.map.userdata2);
+            if (handle)
+                wgpuBufferRelease((WGPUBuffer)handle);
+            break;
+        case RW_REQUEST_POP_ERROR:
+            if (pending.cb.pop_error.callback)
+                pending.cb.pop_error.callback(WGPUPopErrorScopeStatus_Error,
+                                      WGPUErrorType_Unknown, why,
+                                      pending.cb.pop_error.userdata1,
+                                      pending.cb.pop_error.userdata2);
+            break;
+        case RW_REQUEST_WORK_DONE:
+            if (pending.cb.work_done.callback)
+                pending.cb.work_done.callback(WGPUQueueWorkDoneStatus_Error, why,
+                                      pending.cb.work_done.userdata1,
+                                      pending.cb.work_done.userdata2);
+            break;
+        case RW_REQUEST_COMPILATION:
+            if (pending.cb.compilation.callback)
+                pending.cb.compilation.callback(WGPUCompilationInfoRequestStatus_CallbackCancelled,
+                                        NULL, pending.cb.compilation.userdata1,
+                                        pending.cb.compilation.userdata2);
+            break;
+        case RW_REQUEST_TEXTURE_LOAD:
+            if (pending.cb.texture_load.callback)
+                pending.cb.texture_load.callback(WGPUStatus_Error, NULL, why,
+                                         pending.cb.texture_load.userdata1,
+                                         pending.cb.texture_load.userdata2);
+            if (handle)
+                wgpuTextureRelease((WGPUTexture)handle);
+            break;
+        }
+    }
+
+    /* Vsync waits hold no references, but their futures would never
+     * complete either. */
+    RwVsyncWait *waits = self->vsync_waits;
+    self->vsync_waits = NULL;
+    while (waits) {
+        RwVsyncWait *wait = waits;
+        waits = wait->next;
+        rw_future_complete(self->instance, wait->future_id);
+        if (wait->callback.callback)
+            wait->callback.callback(wait->callback.userdata1,
+                                    wait->callback.userdata2);
+        free(wait);
+    }
+}
+
 void wgpuRemoteAdapterSetEventCallback(WGPUAdapter adapter,
                                        WGPURemoteEventCallbackInfo callbackInfo)
 {
