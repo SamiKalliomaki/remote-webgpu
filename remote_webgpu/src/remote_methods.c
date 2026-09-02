@@ -249,6 +249,9 @@ WGPUFuture wgpuBufferMapAsync(WGPUBuffer buffer, WGPUMapMode mode, size_t offset
     request->handle = self;
     request->map_mode = mode;
     request->map_offset = offset;
+    request->map_size = size == WGPU_WHOLE_MAP_SIZE
+                            ? (offset < self->size ? self->size - offset : 0)
+                            : (uint64_t)size;
     wgpuBufferAddRef(buffer); /* released when the reply arrives */
     future.id = request->future_id;
     self->map_state = WGPUBufferMapState_Pending;
@@ -274,7 +277,8 @@ static void *mapped_range(RemoteHandle *self, size_t offset, size_t size)
         return NULL;
     if (size == WGPU_WHOLE_MAP_SIZE)
         size = self->mapped_len - start;
-    if (start + size > self->mapped_len)
+    /* Written as a subtraction so a huge `size` cannot wrap the sum. */
+    if (size > self->mapped_len - start)
         return NULL;
     return self->mapped + start;
 }

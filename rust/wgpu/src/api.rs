@@ -2,6 +2,7 @@
 //! library.  Every C call happens under the global runtime lock; completion
 //! callbacks fire from the websocket reader thread.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Range, RangeBounds};
@@ -459,6 +460,11 @@ impl Adapter {
             return Err(RequestDeviceError { message: state.message });
         }
         let queue_raw = unsafe { sys::wgpuDeviceGetQueue(state.device) };
+        // A freed device's address can come back for a new one; make sure
+        // the fresh device does not inherit the old one's error handler.
+        if let Some(handlers) = uncaptured_error_handlers().as_mut() {
+            handlers.remove(&(state.device as usize));
+        }
         let device = Device {
             inner: Arc::new(OwnedDevice(state.device)),
             client: self.client.clone(),
@@ -482,7 +488,22 @@ pub trait UncapturedErrorHandler: Fn(Error) + Send + Sync + 'static {}
 impl<T> UncapturedErrorHandler for T where T: Fn(Error) + Send + Sync + 'static {}
 
 type ErrorHandler = Arc<dyn UncapturedErrorHandler>;
-static UNCAPTURED_ERROR_HANDLER: Mutex<Option<ErrorHandler>> = Mutex::new(None);
+
+/// Uncaptured-error handlers, keyed by the raw device they belong to.
+///
+/// Errors are reported by the client that owns the device, and every client
+/// is a separate, untrusted peer: a single global handler would let one
+/// client's error (or an `UncapturedError` message it simply made up) be
+/// delivered to another client's device, taking down a render world that
+/// has nothing to do with it.
+static UNCAPTURED_ERROR_HANDLERS: Mutex<Option<HashMap<usize, ErrorHandler>>> = Mutex::new(None);
+
+fn uncaptured_error_handlers() -> std::sync::MutexGuard<'static, Option<HashMap<usize, ErrorHandler>>>
+{
+    let mut guard = UNCAPTURED_ERROR_HANDLERS.lock().unwrap();
+    guard.get_or_insert_with(HashMap::new);
+    guard
+}
 
 fn make_error(ty: sys::WGPUErrorType, message: String) -> Error {
     let source: ErrorSource = Box::new(std::io::Error::other(message.clone()));
@@ -494,14 +515,19 @@ fn make_error(ty: sys::WGPUErrorType, message: String) -> Error {
 }
 
 unsafe extern "C" fn uncaptured_error_cb(
-    _device: *const sys::WGPUDevice,
+    device: *const sys::WGPUDevice,
     ty: sys::WGPUErrorType,
     message: sys::WGPUStringView,
     _userdata1: *mut c_void,
     _userdata2: *mut c_void,
 ) {
     let error = make_error(ty, from_sv(message));
-    let handler = UNCAPTURED_ERROR_HANDLER.lock().unwrap().clone();
+    // `device` points at the WGPUDevice the C library reported the error
+    // for; a null pointer means it could not attribute it to a device.
+    let raw = if device.is_null() { std::ptr::null_mut() } else { unsafe { *device } };
+    let handler = uncaptured_error_handlers()
+        .as_ref()
+        .and_then(|handlers| handlers.get(&(raw as usize)).cloned());
     match handler {
         // The handler is application code; keep it off the reader thread
         // (which holds the C lock here) like the other user callbacks.
@@ -1080,7 +1106,9 @@ impl Device {
     }
 
     pub fn on_uncaptured_error(&self, handler: Arc<dyn UncapturedErrorHandler>) {
-        *UNCAPTURED_ERROR_HANDLER.lock().unwrap() = Some(handler);
+        if let Some(handlers) = uncaptured_error_handlers().as_mut() {
+            handlers.insert(self.raw() as usize, handler);
+        }
     }
 
     pub fn set_device_lost_callback(&self, _callback: impl Fn(DeviceLostReason, String) + Send + 'static) {

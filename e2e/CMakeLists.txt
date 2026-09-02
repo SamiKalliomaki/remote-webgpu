@@ -14,7 +14,7 @@ set(EXAMPLE_SRC ${CMAKE_CURRENT_SOURCE_DIR}/../example_server/src)
 # One executable per feature: src/test_<name>.c defines run_test(), the
 # shared test_main.c owns the accept / device bring-up.  run.sh runs each
 # against a fresh browser session.
-set(E2E_TESTS limits buffers compute render queries async image)
+set(E2E_TESTS limits buffers compute render queries async image hostile)
 
 foreach(test ${E2E_TESTS})
     add_executable(test_${test}

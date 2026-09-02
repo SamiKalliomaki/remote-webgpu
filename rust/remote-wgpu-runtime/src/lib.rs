@@ -27,6 +27,23 @@ use std::time::Duration;
 use remote_wgpu_sys as sys;
 use sys::remote as remote_sys;
 
+/// How many undrained events one client may have queued.  Clients are
+/// untrusted and can produce events (resizes, key presses, pointer moves)
+/// far faster than an application drains them, so the queue is bounded and
+/// the oldest events are dropped: input is only interesting while fresh,
+/// and an unbounded queue is a memory-growth lever for a hostile client.
+const MAX_PENDING_EVENTS: usize = 4096;
+
+/// How long a fresh connection has to get through the HTTP/websocket
+/// handshake and send its `ClientHello`.  Each connection owns a thread
+/// blocked on its socket, so a peer that connects and then stalls must not
+/// be able to hold one forever.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How many connections may be in flight at once.  Bounds the threads,
+/// sockets and buffers a peer can tie up by connecting in a loop.
+const MAX_CONNECTIONS: usize = 64;
+
 /// An event reported by a client, drained by the winit-compatible crate.
 #[derive(Debug, Clone)]
 pub enum ClientEvent {
@@ -336,7 +353,11 @@ unsafe extern "C" fn event_cb(
         }
         _ => return,
     };
-    client.events.lock().unwrap().push_back(parsed);
+    let mut events = client.events.lock().unwrap();
+    while events.len() >= MAX_PENDING_EVENTS {
+        events.pop_front();
+    }
+    events.push_back(parsed);
 }
 
 impl Runtime {
@@ -372,6 +393,7 @@ impl Runtime {
             .name("remote-wgpu-accept".into())
             .spawn(move || {
                 let mut next_id: u64 = 1;
+                let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
                 for stream in listener.incoming() {
                     let stream = match stream {
                         Ok(stream) => stream,
@@ -380,14 +402,27 @@ impl Runtime {
                             continue;
                         }
                     };
+                    // Refuse the connection rather than spawning an
+                    // unbounded number of threads for a peer that keeps
+                    // connecting.
+                    if live.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
+                        eprintln!(
+                            "remote-wgpu: refusing connection, {MAX_CONNECTIONS} already open"
+                        );
+                        drop(stream);
+                        continue;
+                    }
                     let id = next_id;
                     next_id += 1;
+                    live.fetch_add(1, Ordering::SeqCst);
+                    let live = live.clone();
                     std::thread::Builder::new()
                         .name(format!("remote-wgpu-client-{id}"))
                         .spawn(move || {
                             if let Err(error) = runtime.handle_connection(id, stream) {
                                 eprintln!("remote-wgpu: client #{id} setup failed: {error}");
                             }
+                            live.fetch_sub(1, Ordering::SeqCst);
                         })
                         .expect("spawn client setup thread");
                 }
@@ -431,6 +466,12 @@ impl Runtime {
         id: u64,
         mut stream: TcpStream,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // Bound the whole handshake: a peer that opens a connection and
+        // then sends nothing (or a byte at a time) would otherwise pin this
+        // thread and its socket forever.  Cleared once the client is up.
+        stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT))?;
+        let deadline = std::time::Instant::now() + HANDSHAKE_TIMEOUT;
+
         // Peek at the request head without consuming it, so tungstenite
         // still sees the whole upgrade request.
         let mut head = vec![0u8; 8192];
@@ -440,6 +481,9 @@ impl Runtime {
             len = n;
             if n == 0 || head[..n].windows(4).any(|w| w == b"\r\n\r\n") || n == head.len() {
                 break;
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err("timed out waiting for the request head".into());
             }
             // The head has not fully arrived yet; a short blocking read of
             // one more byte would consume it, so just wait a little.
@@ -456,6 +500,7 @@ impl Runtime {
 
         // Plain HTTP: consume the head and answer it.
         stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(30)))?;
         let mut consumed = vec![0u8; len];
         stream.read_exact(&mut consumed)?;
         let request_line = text.lines().next().unwrap_or("");
@@ -614,6 +659,9 @@ impl Runtime {
             }
         }
         eprintln!("remote-wgpu: client #{id} handshake complete, remote adapter ready");
+        // Past the handshake a connected client may legitimately go quiet
+        // for as long as it likes; drop the deadline.
+        read_ws.get_ref().set_read_timeout(None)?;
 
         self.clients.lock().unwrap().push(client.clone());
         self.unclaimed.lock().unwrap().push_back(client.clone());
@@ -623,7 +671,7 @@ impl Runtime {
         loop {
             match read_ws.read() {
                 Ok(tungstenite::Message::Binary(data)) => {
-                    {
+                    let healthy = {
                         let _guard = self.lock();
                         for envelope in envelopes(&data) {
                             unsafe {
@@ -634,23 +682,39 @@ impl Runtime {
                                 );
                             }
                         }
-                    }
+                        // The library clears "ready" when a client breaks
+                        // the protocol (an unparseable envelope, a version
+                        // mismatch, a reported error).  Nothing good comes
+                        // of letting such a peer keep driving the
+                        // application, so hang up on it.
+                        unsafe { remote_sys::wgpuRemoteAdapterIsReady(client.adapter) != 0 }
+                    };
                     self.notify();
+                    if !healthy {
+                        eprintln!("remote-wgpu: client #{id} broke the protocol; disconnecting");
+                        self.mark_disconnected(&client);
+                        return Ok(());
+                    }
                 }
                 Ok(tungstenite::Message::Close(_)) | Err(_) => {
-                    client.disconnected.store(true, Ordering::SeqCst);
-                    client
-                        .events
-                        .lock()
-                        .unwrap()
-                        .push_back(ClientEvent::Disconnected);
-                    self.notify();
+                    self.mark_disconnected(&client);
                     eprintln!("remote-wgpu: client #{id} disconnected");
                     return Ok(());
                 }
                 Ok(_) => {}
             }
         }
+    }
+
+    /// Mark a client gone and tell whoever is polling it.
+    fn mark_disconnected(&self, client: &Arc<Client>) {
+        client.disconnected.store(true, Ordering::SeqCst);
+        client
+            .events
+            .lock()
+            .unwrap()
+            .push_back(ClientEvent::Disconnected);
+        self.notify();
     }
 
     /// Acquire the (reentrant) lock guarding all C library calls.

@@ -43,6 +43,95 @@ static char *dup_or_empty(const char *s)
     return strdup(s ? s : "");
 }
 
+/* ------------------------------------------------------------------ */
+/* untrusted client input                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Everything that arrives from the client is attacker-controlled: the
+ * server must not be crashable, wedgeable or made to allocate absurd
+ * amounts by a hostile or simply broken peer.  Sizes and capabilities are
+ * therefore clamped into ranges every real WebGPU implementation satisfies
+ * before any of it reaches the application.
+ */
+
+/* Canvas/texture dimensions the server is willing to believe. */
+#define RW_MAX_CANVAS_DIM 16384u
+#define RW_MAX_TEXTURE_DIM 65536u
+/* Feature lists the client may report (WebGPU has a few dozen). */
+#define RW_MAX_FEATURES 1024u
+
+static uint32_t clamp_u32(uint32_t value, uint32_t lo, uint32_t hi)
+{
+    return value < lo ? lo : (value > hi ? hi : value);
+}
+
+static uint64_t clamp_u64(uint64_t value, uint64_t lo, uint64_t hi)
+{
+    return value < lo ? lo : (value > hi ? hi : value);
+}
+
+/* Buffer offset alignments must be powers of two no larger than 256 (and
+ * are divisors in the application's own size arithmetic, so 0 is a
+ * division by zero waiting to happen).  Round down to a power of two in
+ * [32, 256]; 256 is the spec's mandated value, so it is always legal. */
+static uint32_t clamp_alignment(uint32_t value)
+{
+    if (value < 32u || value > 256u)
+        return 256u;
+    while (value & (value - 1u))
+        value &= value - 1u; /* clear the lowest set bit until one is left */
+    return value;
+}
+
+/*
+ * Clamp the limits a client reported into [spec-mandated minimum, sane
+ * maximum].  The lower bounds are the defaults every WebGPU adapter is
+ * required to support, so clamping up can only ever hide a lying client;
+ * the upper bounds keep limit-derived size arithmetic in the application
+ * (buffer chunking, cluster grids, staging allocations) far from
+ * overflowing.
+ */
+static void sanitize_limits(WGPULimits *l)
+{
+#define RW_CLAMP32(field, lo, hi) l->field = clamp_u32(l->field, (lo), (hi))
+#define RW_CLAMP64(field, lo, hi) l->field = clamp_u64(l->field, (lo), (hi))
+    RW_CLAMP32(maxTextureDimension1D, 8192u, RW_MAX_TEXTURE_DIM);
+    RW_CLAMP32(maxTextureDimension2D, 8192u, RW_MAX_TEXTURE_DIM);
+    RW_CLAMP32(maxTextureDimension3D, 2048u, RW_MAX_TEXTURE_DIM);
+    RW_CLAMP32(maxTextureArrayLayers, 256u, 8192u);
+    RW_CLAMP32(maxBindGroups, 4u, 1024u);
+    RW_CLAMP32(maxBindGroupsPlusVertexBuffers, 24u, 2048u);
+    RW_CLAMP32(maxBindingsPerBindGroup, 1000u, 1u << 20);
+    RW_CLAMP32(maxDynamicUniformBuffersPerPipelineLayout, 8u, 1u << 16);
+    RW_CLAMP32(maxDynamicStorageBuffersPerPipelineLayout, 4u, 1u << 16);
+    RW_CLAMP32(maxSampledTexturesPerShaderStage, 16u, 1u << 20);
+    RW_CLAMP32(maxSamplersPerShaderStage, 16u, 1u << 20);
+    RW_CLAMP32(maxStorageBuffersPerShaderStage, 8u, 1u << 20);
+    RW_CLAMP32(maxStorageTexturesPerShaderStage, 4u, 1u << 20);
+    RW_CLAMP32(maxUniformBuffersPerShaderStage, 12u, 1u << 20);
+    RW_CLAMP64(maxUniformBufferBindingSize, 65536u, 1ull << 32);
+    RW_CLAMP64(maxStorageBufferBindingSize, 134217728u, 1ull << 34);
+    l->minUniformBufferOffsetAlignment = clamp_alignment(l->minUniformBufferOffsetAlignment);
+    l->minStorageBufferOffsetAlignment = clamp_alignment(l->minStorageBufferOffsetAlignment);
+    RW_CLAMP32(maxVertexBuffers, 8u, 1024u);
+    RW_CLAMP64(maxBufferSize, 268435456u, 1ull << 34);
+    RW_CLAMP32(maxVertexAttributes, 16u, 1u << 16);
+    RW_CLAMP32(maxVertexBufferArrayStride, 2048u, 1u << 20);
+    RW_CLAMP32(maxInterStageShaderVariables, 16u, 1024u);
+    RW_CLAMP32(maxColorAttachments, 8u, 64u);
+    RW_CLAMP32(maxColorAttachmentBytesPerSample, 32u, 4096u);
+    RW_CLAMP32(maxComputeWorkgroupStorageSize, 16384u, 1u << 24);
+    RW_CLAMP32(maxComputeInvocationsPerWorkgroup, 256u, 1u << 20);
+    RW_CLAMP32(maxComputeWorkgroupSizeX, 256u, 1u << 20);
+    RW_CLAMP32(maxComputeWorkgroupSizeY, 256u, 1u << 20);
+    RW_CLAMP32(maxComputeWorkgroupSizeZ, 64u, 1u << 20);
+    RW_CLAMP32(maxComputeWorkgroupsPerDimension, 65535u, 1u << 24);
+    RW_CLAMP32(maxImmediateSize, 0u, 65536u);
+#undef RW_CLAMP32
+#undef RW_CLAMP64
+}
+
 char *rw_dup_stringview(WGPUStringView s)
 {
     char *out = malloc(s.length + 1);
@@ -112,10 +201,24 @@ void rw_handle_release(void *handle)
 /* futures and outstanding requests                                   */
 /* ------------------------------------------------------------------ */
 
+/* How many completed future ids to remember.  wgpuInstanceWaitAny() is
+ * the only consumer and the transport is app-driven, so it observes
+ * completions within a few frames; without a bound the list would grow for
+ * as long as the process renders (one entry per presented frame). */
+#define RW_MAX_COMPLETED_FUTURES 4096
+
 void rw_future_complete(RemoteInstance *instance, uint64_t future_id)
 {
     if (!future_id)
         return;
+    if (instance->completed_count >= RW_MAX_COMPLETED_FUTURES) {
+        /* Forget the older half; those futures are long since observed. */
+        size_t keep = instance->completed_count / 2;
+        memmove(instance->completed_futures,
+                instance->completed_futures + (instance->completed_count - keep),
+                keep * sizeof *instance->completed_futures);
+        instance->completed_count = keep;
+    }
     if (instance->completed_count == instance->completed_capacity) {
         size_t capacity = instance->completed_capacity ? instance->completed_capacity * 2 : 16;
         uint64_t *grown = realloc(instance->completed_futures,
@@ -223,6 +326,15 @@ static void limits_from_message(WGPULimits *out, const RemoteWebgpu__Limits *in)
 static void handle_client_hello(RemoteAdapter *adapter,
                                 const RemoteWebgpu__ClientHello *hello)
 {
+    /* The hello is a one-shot handshake message.  A second one would
+     * re-negotiate capabilities behind the application's back and leak the
+     * strings and arrays allocated for the first, so a client that repeats
+     * it (or sends one after failing) is simply ignored. */
+    if (adapter->ready || adapter->failed) {
+        fprintf(stderr, "remote_webgpu: ignoring repeated ClientHello\n");
+        return;
+    }
+
     if (hello->protocol_version
         != REMOTE_WEBGPU__PROTOCOL_VERSION__PROTOCOL_VERSION_CURRENT) {
         fprintf(stderr, "remote_webgpu: protocol version mismatch (client %u)\n",
@@ -237,19 +349,31 @@ static void handle_client_hello(RemoteAdapter *adapter,
     adapter->device = dup_or_empty(info ? info->device : NULL);
     adapter->description = dup_or_empty(info ? info->description : NULL);
     adapter->is_fallback = info ? info->is_fallback : 0;
-    adapter->canvas_width = hello->canvas_width;
-    adapter->canvas_height = hello->canvas_height;
+    adapter->canvas_width = clamp_u32(hello->canvas_width, 0, RW_MAX_CANVAS_DIM);
+    adapter->canvas_height = clamp_u32(hello->canvas_height, 0, RW_MAX_CANVAS_DIM);
 
     limits_from_message(&adapter->limits, hello->limits);
-    adapter->feature_count = hello->n_features;
-    adapter->features = calloc(hello->n_features ? hello->n_features : 1,
-                               sizeof *adapter->features);
-    for (size_t i = 0; adapter->features && i < hello->n_features; ++i)
+    sanitize_limits(&adapter->limits);
+
+    /* Feature lists are short in practice; a client claiming millions of
+     * them only gets to make the server allocate. */
+    size_t features = hello->n_features < RW_MAX_FEATURES ? hello->n_features
+                                                          : RW_MAX_FEATURES;
+    size_t wgsl_features = hello->n_wgsl_features < RW_MAX_FEATURES
+                               ? hello->n_wgsl_features
+                               : RW_MAX_FEATURES;
+    adapter->feature_count = features;
+    adapter->features = calloc(features ? features : 1, sizeof *adapter->features);
+    if (!adapter->features)
+        adapter->feature_count = 0;
+    for (size_t i = 0; adapter->features && i < features; ++i)
         adapter->features[i] = (WGPUFeatureName)hello->features[i];
-    adapter->wgsl_feature_count = hello->n_wgsl_features;
-    adapter->wgsl_features = calloc(hello->n_wgsl_features ? hello->n_wgsl_features : 1,
+    adapter->wgsl_feature_count = wgsl_features;
+    adapter->wgsl_features = calloc(wgsl_features ? wgsl_features : 1,
                                     sizeof *adapter->wgsl_features);
-    for (size_t i = 0; adapter->wgsl_features && i < hello->n_wgsl_features; ++i)
+    if (!adapter->wgsl_features)
+        adapter->wgsl_feature_count = 0;
+    for (size_t i = 0; adapter->wgsl_features && i < wgsl_features; ++i)
         adapter->wgsl_features[i] = (WGPUWGSLLanguageFeatureName)hello->wgsl_features[i];
 
     adapter->ready = 1;
@@ -275,8 +399,18 @@ static void handle_map_buffer_data(RemoteAdapter *adapter,
 
     WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Error;
     WGPUStringView message = { NULL, 0 };
-    if (data->failed) {
-        message = sv(data->message ? data->message : "map failed");
+    /* A short reply would leave the application holding a mapping smaller
+     * than the range it asked for; every wgpuBufferGetMappedRange() for
+     * that range would then fail (or, in bindings that assume success,
+     * take the process down).  Treat it as a failed map instead. */
+    int short_reply = !data->failed && data->data.len < request->map_size;
+    if (short_reply)
+        fprintf(stderr,
+                "remote_webgpu: client returned %zu bytes for a %llu byte mapping\n",
+                data->data.len, (unsigned long long)request->map_size);
+    if (data->failed || short_reply) {
+        message = sv(data->failed && data->message ? data->message
+                                                   : "map failed");
         buffer->map_state = WGPUBufferMapState_Unmapped;
     } else {
         free(buffer->mapped);
@@ -388,8 +522,8 @@ static void handle_texture_loaded(RemoteAdapter *adapter,
         return;
     }
 
-    texture->width = loaded->width;
-    texture->height = loaded->height;
+    texture->width = clamp_u32(loaded->width, 0, RW_MAX_TEXTURE_DIM);
+    texture->height = clamp_u32(loaded->height, 0, RW_MAX_TEXTURE_DIM);
     /* The callback owns the reference held since the request was made. */
     if (callback.callback)
         callback.callback(WGPUStatus_Success, (WGPUTexture)texture, sv(NULL),
@@ -442,12 +576,16 @@ static void handle_event(RemoteAdapter *adapter, const RemoteWebgpu__Event *even
     switch (event->kind_case) {
     case REMOTE_WEBGPU__EVENT__KIND_CANVAS_RESIZE:
         /* Absorbed into the adapter state either way, so the size is
-         * queryable even without a registered callback. */
-        adapter->canvas_width = event->canvas_resize->width;
-        adapter->canvas_height = event->canvas_resize->height;
+         * queryable even without a registered callback.  Clamped: the
+         * application sizes swapchains, render targets and screen-space
+         * data structures from this. */
+        adapter->canvas_width = clamp_u32(event->canvas_resize->width, 0,
+                                          RW_MAX_CANVAS_DIM);
+        adapter->canvas_height = clamp_u32(event->canvas_resize->height, 0,
+                                           RW_MAX_CANVAS_DIM);
         out.type = WGPURemoteEventType_CanvasResize;
-        out.width = event->canvas_resize->width;
-        out.height = event->canvas_resize->height;
+        out.width = adapter->canvas_width;
+        out.height = adapter->canvas_height;
         break;
 
     case REMOTE_WEBGPU__EVENT__KIND_USER:

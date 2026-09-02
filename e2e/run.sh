@@ -30,9 +30,18 @@ CHROMIUM_FLAGS=(--headless=new --no-sandbox --disable-gpu-sandbox
 
 FEATURE_TESTS=(limits buffers compute render queries async image)
 RUN_GOLDEN=1
+RUN_HOSTILE=1
 if [ "$#" -gt 0 ]; then
     FEATURE_TESTS=("$@")
     RUN_GOLDEN=0
+    RUN_HOSTILE=0
+    # `./run.sh hostile` runs just the untrusted-client test.
+    for arg in "$@"; do
+        if [ "$arg" = hostile ]; then
+            RUN_HOSTILE=1
+            FEATURE_TESTS=()
+        fi
+    done
 fi
 
 PORT=${PORT:-8210}          # websocket ports: PORT, PORT+1, ...
@@ -115,6 +124,35 @@ for test in "${FEATURE_TESTS[@]}"; do
     fi
     run_server "$test" "./build/test_$test"
 done
+
+# The untrusted-client test: the browser is replaced by a hostile peer that
+# completes the handshake with absurd values and then abuses the protocol.
+# The server binary checks the invariants and exits 0 if it survived.
+if [ "$RUN_HOSTILE" -eq 1 ]; then
+    port=$next_port
+    next_port=$((next_port + 1))
+    log "[hostile] running..."
+    timeout "$TIMEOUT" ./build/test_hostile --port "$port" \
+        > "$WORK/hostile.server.log" 2>&1 &
+    server=$!
+    sleep 0.5
+    python3 tools/hostile_client.py --port "$port" \
+        > "$WORK/hostile.client.log" 2>&1 &
+    client=$!
+    wait "$server"
+    rc=$?
+    kill "$client" 2>/dev/null
+    wait "$client" 2>/dev/null
+    if [ "$rc" -ne 0 ]; then
+        FAILED=1
+        log "[hostile] FAILED (server exit $rc); server log:"
+        tail -30 "$WORK/hostile.server.log"
+        log "[hostile] client log:"
+        tail -10 "$WORK/hostile.client.log"
+    else
+        log "[hostile] OK"
+    fi
+fi
 
 # The rendering/present path, compared against a golden screenshot: the
 # triangle rotates a fixed amount per frame and web/index.html pins the

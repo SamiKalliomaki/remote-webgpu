@@ -17,7 +17,8 @@ fallback is enough.  Override the browser or ports with
 
 Each feature is its own executable (`src/test_<name>.c` defines
 `run_test()`; the shared `test_main.c` owns the websocket accept and device
-bring-up), run against a fresh browser session.  `./run.sh compute queries`
+bring-up), run against a fresh browser session -- except `hostile`, whose
+client is a python script rather than a browser.  `./run.sh compute queries`
 runs a subset.
 
 | Test | What it proves |
@@ -29,6 +30,7 @@ runs a subset.
 | `queries` | Occlusion queries around draws, `resolveQuerySet`, and verified sample counts (positive for a full-screen draw, zero for none). |
 | `image` | The texture-from-URL extension: the client fetches and decodes `web/test-image.png` into a texture (verified texel-by-texel over a readback), and a missing URL fails cleanly through the callback. |
 | `async` | The asynchronous round-trips: clean and dirty error scopes (a too-large buffer must surface as a caught validation error), `onSubmittedWorkDone` and `getCompilationInfo`. |
+| `hostile` | Untrusted-client handling: `tools/hostile_client.py` replaces the browser with a peer that completes the handshake with a 4-billion-pixel canvas, zeroed and saturated limits and 50 000 features, then sends repeated hellos, resize storms, event floods, unsolicited replies, fabricated errors and truncated envelopes, and answers every buffer map with fewer bytes than were asked for.  The server must clamp what it reports, fail the short maps, and still be standing when the peer hangs up. |
 | `golden` | The rendering/present path end to end: `spinning_triangle` draws 30 frames paced by the client's vsync acks and reads the final frame back; the triangle rotates a fixed angle per frame and `web/index.html` pins the canvas size, so the PPM is compared **bit-for-bit** against `golden/triangle.ppm`. |
 
 The golden image is tied to the rendering stack (chromium/SwiftShader

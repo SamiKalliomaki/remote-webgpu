@@ -49,6 +49,11 @@ typedef struct RwRequest {
     struct RemoteHandle *handle;
     WGPUMapMode map_mode;
     uint64_t map_offset;
+    /* RW_REQUEST_MAP: how many bytes the client owes us for this mapping
+     * (WGPU_WHOLE_MAP_SIZE already resolved against the buffer size).  A
+     * reply that carries fewer than this is rejected: the application would
+     * otherwise be handed a range shorter than the one it asked for. */
+    uint64_t map_size;
     union {
         WGPUBufferMapCallbackInfo map;
         WGPUPopErrorScopeCallbackInfo pop_error;
