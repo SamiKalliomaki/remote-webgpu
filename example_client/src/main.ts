@@ -36,12 +36,13 @@ setInterval(() => {
 
 /* The server to attach to; override with ?server=ws://host:port.  By
  * default the page assumes the server is what served it (bevy_pbr_game hosts
- * this page on its websocket port), falling back to localhost:8080 when the
- * page was opened from disk. */
+ * this page on its websocket port), using wss:// when the page itself was
+ * served over HTTPS (e.g. behind a TLS-terminating reverse proxy), and
+ * falling back to localhost:8080 when the page was opened from disk. */
 const params = new URLSearchParams(location.search);
 const url = params.get("server") ??
   (location.protocol.startsWith("http") && location.host
-    ? `ws://${location.host}`
+    ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`
     : "ws://localhost:8080");
 
 try {
