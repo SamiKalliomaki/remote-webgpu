@@ -8,3 +8,5 @@ pub mod remote;
 mod size_check;
 
 pub use ffi::*;
+
+include!(concat!(env!("OUT_DIR"), "/protocol_version.rs"));

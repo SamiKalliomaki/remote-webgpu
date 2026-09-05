@@ -160,20 +160,50 @@ owned_handle!(OwnedSurface, sys::WGPUSurface, sys::wgpuSurfaceRelease);
 // Instance
 // ---------------------------------------------------------------------
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct Instance {
-    _priv: (),
+    /// Set when the caller asked for the no-op backend: the one client every
+    /// adapter from this instance is built on, which has no transport.
+    noop: Option<Arc<Client>>,
+}
+
+impl std::fmt::Debug for Instance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Instance").field("noop", &self.noop.is_some()).finish()
+    }
 }
 
 impl Instance {
     /// Connects to (i.e. waits for) the remote client on first use.
-    pub fn new(_desc: InstanceDescriptor) -> Self {
+    ///
+    /// With the no-op backend selected -- `Backends::NOOP` together with
+    /// `backend_options.noop.enable`, the same opt-in upstream wgpu requires
+    /// -- no connection is made at all. See [`Instance::new_noop`].
+    pub fn new(desc: InstanceDescriptor) -> Self {
+        if desc.backends.contains(Backends::NOOP) && desc.backend_options.noop.enable {
+            return Self::new_noop();
+        }
         let _ = rt();
-        Instance { _priv: () }
+        Instance { noop: None }
+    }
+
+    /// An instance whose adapters, devices and resources are real objects in
+    /// the C library but reach no browser.
+    ///
+    /// Everything that only creates and destroys GPU objects works: ids are
+    /// assigned, refcounts tracked, `Drop` releases things, and the adapter
+    /// reports the WebGPU baseline limits. Nothing that reads results back
+    /// works, because no client ever replies -- `Buffer::map_async` and
+    /// friends simply never complete.
+    ///
+    /// This is what lets tests that need a `Device` run with no browser and
+    /// no configured port. It is not a software renderer.
+    pub fn new_noop() -> Self {
+        Instance { noop: Some(Client::loopback(remote_wgpu_runtime::runtime_offline())) }
     }
 
     pub fn enabled_backend_features() -> Backends {
-        Backends::BROWSER_WEBGPU
+        Backends::BROWSER_WEBGPU | Backends::NOOP
     }
 
     pub fn wgsl_language_features(&self) -> WgslLanguageFeatures {
@@ -183,6 +213,9 @@ impl Instance {
     /// One adapter per connected client; blocks until at least one client
     /// has connected.
     pub fn enumerate_adapters(&self, _backends: Backends) -> impl Future<Output = Vec<Adapter>> {
+        if let Some(client) = &self.noop {
+            return std::future::ready(vec![Adapter { client: client.clone() }]);
+        }
         rt().default_client();
         let adapters = rt()
             .clients()
@@ -200,9 +233,10 @@ impl Instance {
         &self,
         options: &RequestAdapterOptions<'_, '_>,
     ) -> impl Future<Output = Result<Adapter, RequestAdapterError>> {
-        let client = match options.compatible_surface {
-            Some(surface) => surface.client(),
-            None => rt().default_client(),
+        let client = match (&self.noop, options.compatible_surface) {
+            (Some(client), _) => client.clone(),
+            (None, Some(surface)) => surface.client(),
+            (None, None) => rt().default_client(),
         };
         std::future::ready(Ok(Adapter { client }))
     }

@@ -14,18 +14,12 @@ use crate::renderer::{RenderDevice, RenderQueue, WgpuWrapper};
 /// This lets tests exercise real `wgpu` resource creation without requiring a
 /// GPU adapter, so they can run in headless environments.
 ///
-/// remote-webgpu: **this does not work in this workspace.** `wgpu` here is the
-/// drop-in shim over `remote_webgpu`, which has no noop backend; every adapter
-/// belongs to a connected browser tab, so `Instance::new` panics with
-/// `no port configured` unless a runtime and a client are up. The upstream
-/// tests that call this are marked `#[ignore]` rather than deleted, since they
-/// are the vendored fork's only coverage of slab and mesh allocator behaviour.
-///
-/// Making them run means giving this function a fake client instead of a noop
-/// adapter: start the runtime on an ephemeral port and complete a handshake,
-/// the way `remote-wgpu-runtime/tests/support/fake_client.rs` does for the
-/// lifetime tests. Share one device across the whole test binary, because the
-/// runtime hands out one client per connection.
+/// remote-webgpu: `wgpu` here is the drop-in shim over `remote_webgpu`, which
+/// implements the no-op backend as a client with no transport: real objects in
+/// the C library, real ids and refcounts, but the envelopes go nowhere and no
+/// browser ever replies. That is enough for tests that only create and destroy
+/// GPU resources, which is what the callers below do. Anything that reads
+/// results back, `map_async` above all, will never complete on this device.
 pub fn create_dummy_device() -> (RenderDevice, RenderQueue) {
     let instance = Instance::new(InstanceDescriptor {
         backends: Backends::NOOP,

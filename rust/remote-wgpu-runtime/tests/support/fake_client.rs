@@ -11,7 +11,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
-const PROTOCOL_VERSION: u64 = 6;
+const PROTOCOL_VERSION: u64 = remote_wgpu_sys::PROTOCOL_VERSION as u64;
 
 /// Tests share one runtime and claim clients from one queue, so they must
 /// not interleave; every test holds this for its whole body.

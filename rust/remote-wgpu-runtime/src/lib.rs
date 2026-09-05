@@ -242,6 +242,75 @@ impl Drop for Client {
 }
 
 impl Client {
+
+    /// A client with no transport, for `wgpu`'s no-op backend.
+    ///
+    /// The C library is driven exactly as a real connection drives it, so
+    /// every object the `wgpu` shim creates on top behaves normally: ids are
+    /// assigned, refcounts are tracked, `Drop` releases things. The
+    /// difference is that the envelopes the library emits go nowhere, and no
+    /// browser ever replies. That makes this usable for anything that only
+    /// builds and destroys GPU objects, and useless for anything that reads
+    /// results back: `map_async` and other reply-bearing calls never
+    /// complete.
+    ///
+    /// The synthetic `ClientHello` carries only the protocol version. The
+    /// library clamps every unspecified limit up to the WebGPU baseline, so
+    /// the adapter reports the default limits rather than zeroes.
+    pub fn loopback(runtime: &'static Runtime) -> Arc<Client> {
+        // A channel whose receiver is dropped: `send_cb` already treats a
+        // send failure as "the writer is gone", which is exactly right here.
+        let (tx, rx) = std::sync::mpsc::channel();
+        drop(rx);
+        let send_ctx = Box::new(SendCtx { id: LOOPBACK_CLIENT_ID, tx });
+
+        let client = {
+            let _guard = runtime.lock();
+            unsafe {
+                let instance = sys::wgpuCreateInstance(std::ptr::null());
+                assert!(!instance.is_null(), "wgpuCreateInstance failed");
+                let adapter = remote_sys::wgpuRemoteInstanceCreateAdapter(
+                    instance,
+                    Some(send_cb),
+                    &*send_ctx as *const SendCtx as *mut c_void,
+                );
+                assert!(!adapter.is_null(), "wgpuRemoteInstanceCreateAdapter failed");
+                Arc::new_cyclic(|this| Client {
+                    id: LOOPBACK_CLIENT_ID,
+                    instance,
+                    adapter,
+                    send_ctx,
+                    this: this.clone(),
+                    events: Mutex::new(VecDeque::new()),
+                    disconnected: AtomicBool::new(false),
+                    vsync_pending: AtomicU64::new(0),
+                })
+            }
+        };
+
+        // Complete the handshake in-process, the way the reader thread would
+        // after the browser's hello arrived.
+        let hello = client_hello();
+        {
+            let _guard = runtime.lock();
+            unsafe {
+                remote_sys::wgpuRemoteAdapterReceiveData(
+                    client.adapter,
+                    hello.as_ptr() as *const c_void,
+                    hello.len(),
+                );
+            }
+        }
+        {
+            let _guard = runtime.lock();
+            assert!(
+                unsafe { remote_sys::wgpuRemoteAdapterIsReady(client.adapter) != 0 },
+                "the loopback ClientHello did not make the adapter ready; \
+                 the schema's PROTOCOL_VERSION_CURRENT is probably stale"
+            );
+        }
+        client
+    }
     /// Small integer identifying this client (1 for the first connection).
     pub fn id(&self) -> u64 {
         self.id
@@ -298,6 +367,9 @@ impl Client {
 pub struct Runtime {
     lock: CLock,
     port: u16,
+    /// False for the offline runtime behind the no-op backend, which has no
+    /// socket and will never produce a client.
+    listening: bool,
 
     /// Bumped after every processed websocket message (and on wake-ups);
     /// blocking waits sleep on this.
@@ -345,6 +417,16 @@ pub fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(Runtime::start)
 }
 
+/// The process-wide runtime, started without a socket if it is not up yet.
+///
+/// This exists for the `wgpu` shim's no-op backend, which needs the C lock and
+/// object bookkeeping but no browser and no port.  If a listening runtime is
+/// already running this returns that one, which serves a no-op client just as
+/// well.
+pub fn runtime_offline() -> &'static Runtime {
+    RUNTIME.get_or_init(Runtime::start_offline)
+}
+
 /// Splits one binary websocket message into the size-prefixed envelopes it
 /// carries (see the transport notes in the .proto).  A malformed prefix
 /// ends the iteration; the C library's parser reports the garbage envelope.
@@ -357,6 +439,36 @@ fn envelopes(data: &[u8]) -> impl Iterator<Item = &[u8]> {
         rest = tail;
         Some(envelope)
     })
+}
+
+/// The client id [`Client::loopback`] reports.  Real ids start at 1 and
+/// count up, so this cannot collide with a connected browser.
+const LOOPBACK_CLIENT_ID: u64 = 0;
+
+fn varint(mut value: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let byte = (value & 0x7f) as u8;
+        value >>= 7;
+        if value == 0 {
+            out.push(byte);
+            return out;
+        }
+        out.push(byte | 0x80);
+    }
+}
+
+/// `Envelope { client_hello: ClientHello { protocol_version } }`, the smallest
+/// hello the C library accepts.
+fn client_hello() -> Vec<u8> {
+    // ClientHello { protocol_version = PROTOCOL_VERSION } : field 1, varint.
+    let mut hello = varint(1 << 3);
+    hello.extend(varint(sys::PROTOCOL_VERSION as u64));
+    // Envelope { client_hello = .. } : field 2, length-delimited.
+    let mut envelope = varint(2 << 3 | 2);
+    envelope.extend(varint(hello.len() as u64));
+    envelope.extend(hello);
+    envelope
 }
 
 unsafe extern "C" fn send_cb(data: *const c_void, size: usize, userdata: *mut c_void) {
@@ -404,6 +516,39 @@ unsafe extern "C" fn event_cb(
 }
 
 impl Runtime {
+    /// The runtime's own state, with nothing listening yet.
+    fn bare(port: u16) -> Runtime {
+        Runtime {
+            lock: CLock::new(),
+            port,
+            listening: port != 0,
+            progress: Mutex::new(0),
+            progress_cond: Condvar::new(),
+            clients: Mutex::new(Vec::new()),
+            unclaimed: Mutex::new(VecDeque::new()),
+            static_files: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// A runtime with no socket, for [`Client::loopback`].  It still owns the
+    /// C lock and the progress counter, so every object in the `wgpu` shim
+    /// behaves normally; there is simply no browser at the other end and no
+    /// port to bind.
+    fn start_offline() -> &'static Runtime {
+        Box::leak(Box::new(Runtime::bare(0)))
+    }
+
+    /// Panics unless this runtime is actually serving clients.  Anything that
+    /// needs a browser on the other end goes through here, so a process that
+    /// reached the offline runtime by way of the no-op backend and then tried
+    /// to do real work fails immediately instead of blocking forever.
+    fn require_listening(&self, what: &str) {
+        assert!(
+            self.listening,
+            "remote-wgpu: {what} needs a listening runtime, but this process              started the offline one for the no-op backend; a no-op instance              and real clients cannot share a process"
+        );
+    }
+
     fn start() -> &'static Runtime {
         let port: u16 = match std::env::var("REMOTE_WEBGPU_PORT") {
             Ok(value) => value.parse().unwrap_or_else(|_| {
@@ -422,15 +567,7 @@ impl Runtime {
             .unwrap_or_else(|e| panic!("remote-wgpu: failed to bind port {port}: {e}"));
         eprintln!("remote-wgpu: accepting clients on ws://localhost:{port}");
 
-        let runtime: &'static Runtime = Box::leak(Box::new(Runtime {
-            lock: CLock::new(),
-            port,
-            progress: Mutex::new(0),
-            progress_cond: Condvar::new(),
-            clients: Mutex::new(Vec::new()),
-            unclaimed: Mutex::new(VecDeque::new()),
-            static_files: Mutex::new(HashMap::new()),
-        }));
+        let runtime: &'static Runtime = Box::leak(Box::new(Runtime::bare(port)));
 
         std::thread::Builder::new()
             .name("remote-wgpu-accept".into())
@@ -477,6 +614,7 @@ impl Runtime {
 
     /// The TCP port the websocket server (and static files) listen on.
     pub fn port(&self) -> u16 {
+        self.require_listening("Runtime::port");
         self.port
     }
 
@@ -847,6 +985,7 @@ impl Runtime {
     /// Claim the next connected client no window has claimed yet, blocking
     /// until one connects.  Each `Window` owns the client it claims.
     pub fn next_client(&self) -> Arc<Client> {
+        self.require_listening("Runtime::next_client");
         let mut announced = false;
         let mut result = None;
         self.wait_until(|| {
@@ -870,6 +1009,7 @@ impl Runtime {
     /// an adapter is requested without a surface (compute-only apps);
     /// unlike [`Runtime::next_client`] this does not claim it.
     pub fn default_client(&self) -> Arc<Client> {
+        self.require_listening("Runtime::default_client");
         let mut announced = false;
         let mut result = None;
         self.wait_until(|| {

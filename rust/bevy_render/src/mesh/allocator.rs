@@ -701,7 +701,6 @@ mod tests {
     /// `free_meshes` must release meshes that are merely being re-extracted, not
     /// only those flagged `removed` or `modified`.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn free_meshes_releases_reextracted_meshes() {
         let (render_device, render_queue) = create_dummy_device();
         let settings = MeshAllocatorSettings::default();
@@ -737,7 +736,6 @@ mod tests {
     /// can be modified and then leave `Assets` without emitting `Unused`, in
     /// which case `modified` is the only record we get of it.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn free_meshes_releases_modified_meshes_that_were_not_reextracted() {
         let (render_device, render_queue) = create_dummy_device();
         let settings = MeshAllocatorSettings::default();
@@ -768,7 +766,6 @@ mod tests {
     /// `free_meshes` must release every class of allocation a mesh holds, not
     /// just its vertex data.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn free_meshes_releases_every_element_class() {
         let (render_device, render_queue) = create_dummy_device();
         let settings = MeshAllocatorSettings::default();
@@ -814,7 +811,6 @@ mod tests {
     /// A mesh that loses part of its data on re-extraction must give up the
     /// matching allocations, which nothing will reallocate.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reextracting_a_mesh_that_drops_its_extra_data_frees_those_allocations() {
         let (render_device, render_queue) = create_dummy_device();
         let settings = MeshAllocatorSettings::default();
@@ -865,7 +861,6 @@ mod tests {
     /// Changing a mesh's vertex layout moves it to a different slab, and the
     /// slab it leaves behind must be reclaimed.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reextracting_a_mesh_with_a_new_vertex_layout_reclaims_the_old_slab() {
         let (render_device, render_queue) = create_dummy_device();
         let settings = MeshAllocatorSettings::default();
@@ -977,14 +972,12 @@ mod tests {
 
     /// Re-extracting the same mesh ID every frame must reach a steady state.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reextracting_the_same_mesh_does_not_grow_the_slabs() {
         assert_steady_state(SteadyStateCase::default(), 32);
     }
 
     /// Modifying the same mesh in place every frame must reach a steady state.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn modifying_a_mesh_in_place_does_not_grow_the_slabs() {
         assert_steady_state(
             SteadyStateCase {
@@ -998,7 +991,6 @@ mod tests {
     /// A mesh carrying every element class must reach a steady state too, so
     /// that a leak confined to one class cannot hide behind the vertex data.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reextracting_a_mesh_with_every_element_class_does_not_grow_the_slabs() {
         assert_steady_state(
             SteadyStateCase {
@@ -1012,7 +1004,6 @@ mod tests {
     /// Data too big to share a general slab gets one of its own, so a missed
     /// free leaks a whole slab rather than a slot inside one.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reextracting_a_mesh_too_large_for_a_general_slab_does_not_grow_the_slabs() {
         assert_steady_state(
             SteadyStateCase {
@@ -1027,7 +1018,6 @@ mod tests {
     /// The other route to a dedicated slab, taken when the platform cannot
     /// share vertex slabs at all.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reextracting_a_mesh_without_general_vertex_slabs_does_not_grow_the_slabs() {
         assert_steady_state(
             SteadyStateCase {

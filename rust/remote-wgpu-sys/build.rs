@@ -18,6 +18,25 @@ fn main() {
         .expect("failed to run protoc (is it installed?)");
     assert!(status.success(), "protoc failed");
 
+    // The wire protocol version lives in the schema; lift it into a Rust
+    // constant so nothing has to hard-code it and drift.
+    let schema = std::fs::read_to_string(repo.join("proto/remote_webgpu.proto")).unwrap();
+    let version = schema
+        .lines()
+        .find_map(|line| {
+            let (name, value) = line.split_once('=')?;
+            (name.trim() == "PROTOCOL_VERSION_CURRENT")
+                .then(|| value.trim().trim_end_matches(';').trim())
+        })
+        .expect("PROTOCOL_VERSION_CURRENT missing from remote_webgpu.proto");
+    std::fs::write(
+        out.join("protocol_version.rs"),
+        format!(
+            "/// `PROTOCOL_VERSION_CURRENT` from `proto/remote_webgpu.proto`.\n             pub const PROTOCOL_VERSION: u32 = {version};\n"
+        ),
+    )
+    .unwrap();
+
     let protobuf_c = pkg_config::Config::new()
         .probe("libprotobuf-c")
         .expect("libprotobuf-c not found via pkg-config");

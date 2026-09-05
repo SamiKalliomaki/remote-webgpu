@@ -1221,7 +1221,6 @@ mod tests {
     /// Reallocating a key that's still live must free its previous allocation
     /// rather than orphaning it.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reallocating_a_live_key_frees_the_old_allocation() {
         let (device, queue) = create_dummy_device();
         let mut allocator = SlabAllocator::<TestItem>::new();
@@ -1255,7 +1254,6 @@ mod tests {
     /// A slab emptied by a reallocation that lands back in that same slab must
     /// not be destroyed on commit.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn slab_refilled_during_allocation_is_not_freed() {
         let (device, queue) = create_dummy_device();
         let mut allocator = SlabAllocator::<TestItem>::new();
@@ -1291,7 +1289,6 @@ mod tests {
     /// same key, just as [`AllocationStage::allocate`] does. Each one takes a
     /// brand new slab, so a missed free leaks a whole slab per round.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn reallocating_a_live_key_with_allocate_large_frees_the_old_allocation() {
         let (device, queue) = create_dummy_device();
         let mut allocator = SlabAllocator::<TestItem>::new();
@@ -1314,7 +1311,6 @@ mod tests {
     /// A slab genuinely emptied during an allocation stage must be reclaimed, or
     /// the fix for reallocation would just trade one leak for another.
     #[test]
-    #[ignore = "needs a real wgpu device: the remote backend has no noop adapter, see test_utils::create_dummy_device"]
     fn slab_emptied_during_allocation_is_freed() {
         let (device, queue) = create_dummy_device();
         let mut allocator = SlabAllocator::<TestItem>::new();
