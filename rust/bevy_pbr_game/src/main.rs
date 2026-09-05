@@ -38,6 +38,7 @@ use bevy::render::pipelined_rendering::PipelinedRenderingPlugin;
 use bevy::render::renderer::{
     RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue, WgpuWrapper,
 };
+use bevy::render::error_handler::{RenderError, RenderErrorHandler, RenderErrorPolicy};
 use bevy::render::settings::RenderCreation;
 use bevy::render::sync_world::{register_render_world, unregister_render_world, SyncQueueIndex};
 use bevy::render::view::window::screenshot::{save_to_disk, share_screenshot_channel, Screenshot};
@@ -53,6 +54,7 @@ use raw_window_handle::{
 use remote_wgpu_runtime::{runtime, Client, ClientEvent};
 
 use game::{spawn_player, ArenaPlugin, Button, Controls, FollowPlayer};
+use bevy_pbr_game::shared_assets::{audit_asset_registrations, restore_asset_registrations};
 
 /// The render sub-app label for players that join after the first one.
 #[derive(AppLabel, Clone, Copy, Hash, PartialEq, Eq, Debug)]
@@ -106,6 +108,37 @@ impl Plugin for SharedAssetsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(self.server.clone());
     }
+}
+
+/// Marks a render world that has already reported a render error.
+#[derive(Resource)]
+struct RenderErrorReported;
+
+/// What to do when wgpu reports an error against one player's device.
+///
+/// Bevy's default handler asks the whole app to quit for any render error,
+/// which suits a single-window game but not a server where every browser tab is
+/// a separate device: one tab's bad frame would take the game down for everyone
+/// else.  It is also misleading here, because this app's runner never reads
+/// `AppExit`, so the default just logs "Quitting the application" once per frame
+/// forever while the game keeps running.
+///
+/// Stop the offending render world instead, and say so once.  The runner already
+/// skips a player whose frames stop being acknowledged, and cleans the player up
+/// when their tab goes away.
+fn stop_this_players_rendering(
+    error: &RenderError,
+    _main_world: &mut World,
+    render_world: &mut World,
+) -> RenderErrorPolicy {
+    if !render_world.contains_resource::<RenderErrorReported>() {
+        render_world.insert_resource(RenderErrorReported);
+        error!(
+            "stopping this player's rendering after a {:?} render error: {}",
+            error.ty, error.description
+        );
+    }
+    RenderErrorPolicy::StopRendering
 }
 
 /// The GPU half of one player: their tab's instance, adapter and device.
@@ -168,6 +201,7 @@ fn build_app(render_creation: RenderCreation, shared_assets: Option<AssetServer>
             .disable::<LogPlugin>();
     }
     app.add_plugins(plugins);
+    app.insert_resource(RenderErrorHandler(stop_this_players_rendering));
     app.get_sub_app_mut(RenderApp)
         .expect("RenderPlugin built the render sub-app")
         .add_systems(
@@ -281,9 +315,16 @@ fn harvest_render_app(app: &mut App, client: &Arc<Client>) -> bevy::app::SubApp 
     }
     throwaway.finish();
     throwaway.cleanup();
-    throwaway
+    let sub_app = throwaway
         .remove_sub_app(RenderApp)
-        .expect("the throwaway app built a render sub-app")
+        .expect("the throwaway app built a render sub-app");
+    drop(throwaway);
+    // Building on the shared `AssetServer` pointed its handle providers at the
+    // throwaway's `Assets<A>` collections, which have just been dropped.  Left
+    // alone, the server would keep minting asset ids from those dead, zero-based
+    // allocators and alias live assets; see `shared_assets`.
+    restore_asset_registrations(app.world());
+    sub_app
 }
 
 fn translate_key(payload: &[u8]) -> Option<Button> {
@@ -333,6 +374,8 @@ fn runner(mut app: App) -> AppExit {
     }
     app.finish();
     app.cleanup();
+    // Catches an asset type added later that `shared_assets` does not repair.
+    audit_asset_registrations(app.world());
 
     let settings = run_settings();
     let rt = runtime();
