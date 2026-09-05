@@ -46,8 +46,6 @@ pub enum Button {
 /// One connected player's character.
 #[derive(Component)]
 pub struct Player {
-    /// Join order; picks the color and the spawn corner.
-    pub slot: usize,
     pub score: u32,
     pub facing: Vec2,
     dash_left: f32,
@@ -161,7 +159,6 @@ pub fn spawn_player(world: &mut World, slot: usize) -> Entity {
     world
         .spawn((
             Player {
-                slot,
                 score: 0,
                 facing: Vec2::new(0.0, -1.0),
                 dash_left: 0.0,

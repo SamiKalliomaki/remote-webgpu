@@ -27,7 +27,7 @@ mod game;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bevy::app::{AppLabel, PluginGroup, PluginsState};
 use bevy::asset::AssetPlugin;

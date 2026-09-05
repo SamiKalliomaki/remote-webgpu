@@ -46,7 +46,7 @@ impl ApplicationHandler for App {
 
             // Each window gets its own adapter (its client's GPU) and its
             // own device driving its own surface.
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
             let surface = instance.create_surface(window.clone()).expect("create surface");
             let adapter = pollster::block_on(instance.request_adapter(
                 &wgpu::RequestAdapterOptions {

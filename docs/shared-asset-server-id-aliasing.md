@@ -90,4 +90,6 @@ offending render world and reports it once.
 another full set of asset loaders to the shared server; this is the source of
 the `Duplicate AssetLoader registered for Asset type Shader` warning. The
 loaders are identical, so resolution still picks an equivalent one, but the list
-grows for the life of the process and there is no public API to remove entries.
+grows for the life of the process and there is no API at any visibility that can
+remove entries. Written up in
+[`shared-asset-server-loader-growth.md`](shared-asset-server-loader-growth.md).

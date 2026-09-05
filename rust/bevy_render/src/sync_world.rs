@@ -606,13 +606,13 @@ mod tests {
         lifecycle::{Add, Remove},
         observer::On,
         query::With,
-        system::{Query, ResMut},
+        system::ResMut,
         world::World,
     };
 
     use super::{
-        entity_sync_system, EntityRecord, MainEntity, PendingSyncEntity, RenderEntity,
-        SyncToRenderWorld,
+        entity_sync_system, register_render_world, EntityRecord, MainEntity, PendingSyncEntity,
+        RenderEntity, SyncQueueIndex, SyncToRenderWorld,
     };
 
     #[derive(Component)]
@@ -624,20 +624,23 @@ mod tests {
         let mut render_world = World::new();
         main_world.init_resource::<PendingSyncEntity>();
 
+        // The same observers `SyncWorldPlugin` installs.  Both records carry the
+        // main world entity: with one queue per render world, each render world
+        // resolves it through its own `MainToRenderEntityMap`.
         main_world.add_observer(
             |add: On<Add, SyncToRenderWorld>, mut pending: ResMut<PendingSyncEntity>| {
                 pending.push(EntityRecord::Added(add.entity));
             },
         );
         main_world.add_observer(
-            |remove: On<Remove, SyncToRenderWorld>,
-             mut pending: ResMut<PendingSyncEntity>,
-             query: Query<&RenderEntity>| {
-                if let Ok(e) = query.get(remove.entity) {
-                    pending.push(EntityRecord::Removed(*e));
-                };
+            |remove: On<Remove, SyncToRenderWorld>, mut pending: ResMut<PendingSyncEntity>| {
+                pending.push(EntityRecord::Removed(remove.entity));
             },
         );
+
+        // A render world only receives records once it owns a queue.
+        let queue = register_render_world(&mut main_world);
+        render_world.insert_resource(SyncQueueIndex(queue));
 
         // spawn some empty entities for test
         for _ in 0..99 {
