@@ -84,12 +84,13 @@ why the default only produced endless `Quitting the application` lines while the
 game kept running. `stop_this_players_rendering` in `main.rs` stops just the
 offending render world and reports it once.
 
-## Not fixed
+## Also fixed
 
-`AssetServer::register_loader` appends unconditionally, so each join adds
-another full set of asset loaders to the shared server; this is the source of
+`AssetServer::register_loader` appended unconditionally, so each join added
+another full set of asset loaders to the shared server; this was the source of
 the `Duplicate AssetLoader registered for Asset type Shader` warning. The
-loaders are identical, so resolution still picks an equivalent one, but the list
-grows for the life of the process and there is no API at any visibility that can
-remove entries. Written up in
+loaders were identical, so resolution still picked an equivalent one, but the
+list grew for the life of the process and no API at any visibility could remove
+entries. Fixed the same day by vendoring `bevy_asset` and making loader
+registration reuse the slot a loader type already holds; written up in
 [`shared-asset-server-loader-growth.md`](shared-asset-server-loader-growth.md).

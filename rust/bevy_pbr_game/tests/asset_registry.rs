@@ -3,7 +3,8 @@
 //! independent index allocators feeding one `Assets<A>` storage.  The second
 //! allocator restarts at index 0 and hands out ids that alias live assets.
 
-use bevy::asset::{AssetApp, AssetPlugin, AssetServer, Assets};
+use bevy::asset::io::Reader;
+use bevy::asset::{AssetApp, AssetLoader, AssetPlugin, AssetServer, Assets, LoadContext};
 use bevy::prelude::*;
 use bevy::shader::Shader;
 
@@ -21,7 +22,34 @@ fn build(shared: Option<AssetServer>) -> App {
         app.insert_resource(server);
     }
     app.init_asset::<Shader>();
+    // Loaders come from the plugin stack too, and a throwaway registers the
+    // same ones the real app already did.
+    app.register_asset_loader(NoteLoader);
     app
+}
+
+/// Stands in for the real stack's `ShaderLoader`: one loader type, registered
+/// once per app built, claiming a fixed set of extensions.
+#[derive(TypePath)]
+struct NoteLoader;
+
+impl AssetLoader for NoteLoader {
+    type Asset = Shader;
+    type Settings = ();
+    type Error = std::io::Error;
+
+    async fn load(
+        &self,
+        _: &mut dyn Reader,
+        _: &Self::Settings,
+        _: &mut LoadContext<'_>,
+    ) -> Result<Shader, Self::Error> {
+        Ok(wgsl("loaded"))
+    }
+
+    fn extensions(&self) -> &[&str] {
+        &["wgsl"]
+    }
 }
 
 fn live_shaders(app: &mut App, count: usize) -> Vec<Handle<Shader>> {
@@ -106,4 +134,28 @@ fn the_audit_names_an_asset_type_the_repair_would_miss() {
         unrestored.iter().any(|path| path.contains("UnlistedAsset")),
         "the audit missed an asset type outside `for_each_shared_asset_type!`: {unrestored:?}"
     );
+}
+
+#[test]
+fn joining_does_not_grow_the_shared_servers_loader_table() {
+    let real = build(None);
+    let before = real
+        .world()
+        .resource::<AssetServer>()
+        .registered_loader_count();
+    assert!(before > 0, "the app registered no loaders at all");
+
+    for _ in 0..4 {
+        simulate_join(&real);
+        assert_eq!(
+            real.world()
+                .resource::<AssetServer>()
+                .registered_loader_count(),
+            before,
+            "a join left another set of asset loaders on the shared server; \
+             `AssetLoaders::push` in the vendored bevy_asset is supposed to \
+             reuse the slot of a loader type it already holds. See \
+             docs/shared-asset-server-loader-growth.md"
+        );
+    }
 }

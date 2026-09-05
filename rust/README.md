@@ -11,6 +11,7 @@ websocket protocol implemented by `../remote_webgpu`.
 | `remote-wgpu-sys` | Raw FFI bindings to the `remote_webgpu` C static library (built by `build.rs` with `cc` + `protoc`).  `src/ffi.rs` is generated from `webgpu.h` by `tools/generate_ffi.py`, together with a C-vs-Rust struct-size self-check (`cargo test -p remote-wgpu-sys`). |
 | `remote-wgpu-runtime` | The shared runtime both API crates rendezvous through: a websocket server accepting any number of browser clients on the port the application picks with `set_port()` (`REMOTE_WEBGPU_PORT` overrides it; there is no default).  Each connection gets its own remote instance/adapter, reader thread, event queue (resizes, keys, pointer) and present/vsync pacing.  All C calls happen under one reentrant lock. |
 | `wgpu` | The wgpu-compatible API, implementing the wgpu **29** public API on top of the real [`wgpu-types`](https://crates.io/crates/wgpu-types) 29 crate (so all plain data types are shared with any other crate compiled against wgpu 29 — bevy above all): instance/adapter/device/queue, buffers with mapping, textures/views/samplers, bind groups, render + compute pipelines and passes, render bundles, query sets, error scopes, the surface swapchain, `ShaderSource::Wgsl` and `ShaderSource::Naga` (Naga IR is written back out as WGSL for the browser), and `wgpu::util` (`DeviceExt`, `StagingBelt`, `TextureBlitter`, `include_wgsl!`, `vertex_attr_array!`). |
+| `bevy_asset` | A vendored copy of bevy 0.19.1's asset crate with one change: registering an asset loader type that is already registered reuses its slot instead of appending another copy.  Every player who joins builds a throwaway `App` on the one shared `AssetServer`, and upstream had no way at any visibility to remove the duplicates.  See [`docs/shared-asset-server-loader-growth.md`](../docs/shared-asset-server-loader-growth.md). |
 | `bevy_render` | A vendored fork of bevy 0.19's renderer with **multi-render-world** support: one complete render world (device, pipeline cache, render graph) per connected browser tab, all extracting from the one main world.  See [The bevy_render fork](#the-bevy_render-fork). |
 | `bevy_pbr_game` | The same idea on bevy's real 3D pipeline: `bevy_pbr` renders the shared world once per player, each on that player's own GPU, through the `bevy_render` fork.  See [The bevy_pbr example game](#the-bevy_pbr-example-game). |
 | `winit` | A winit-compatible event loop (version `0.30.999`).  `ActiveEventLoop::create_window` claims the next connected client (blocking until one connects), so each `Window` is its own browser tab.  Client events are translated into `WindowEvent`s for that window — canvas resizes to `Resized`, `keydown`/`keyup` user events to `KeyboardInput` (browser `code`/`key` names mapped to `KeyCode`/`Key`), `mousemove` to `CursorMoved`, a disconnect to `CloseRequested` — and each window's `RedrawRequested` is paced to its client's vsync acknowledgements. |
@@ -106,9 +107,11 @@ tab** — identical systems, fully independent GPU state:
 - `share_screenshot_channel` re-points a harvested render world's
   screenshot sender at the running app's receiver.
 
+`bevy_asset` is vendored too, for an unrelated reason: see the table above
+and [`docs/shared-asset-server-loader-growth.md`](../docs/shared-asset-server-loader-growth.md).
 Everything else — `bevy_pbr`, `bevy_core_pipeline`, and the rest of the
-bevy 0.19 crates — is used unmodified from crates.io via the
-`[patch.crates-io]` entry in `Cargo.toml`.
+bevy 0.19 crates — is used unmodified from crates.io; the `[patch.crates-io]`
+entries in `Cargo.toml` point them all at the two vendored crates.
 
 ## The bevy_pbr example game
 
@@ -154,6 +157,9 @@ world can now be born mid-game (`src/main.rs` has the details):
 - `AssetEvent::Modified` is replayed for every live mesh, image, material
   and shader, because those events expired long before the new render
   world could extract them;
+- nothing has to be undone for the stack's asset *loaders*: the vendored
+  `bevy_asset` reuses a loader type's slot when the throwaway registers it
+  again, where upstream appended a duplicate that nothing could remove;
 - resources that hold `Assets::add`-created handles from plugin build time
   (`DownsampleShaders` is the one such plugin in this stack) are re-copied
   from the real app, because runtime asset handles are only meaningful in

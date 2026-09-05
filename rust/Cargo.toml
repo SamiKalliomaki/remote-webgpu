@@ -5,13 +5,17 @@ members = [
     "remote-wgpu-runtime",
     "wgpu",
     "winit",
+    "bevy_asset",
     "bevy_render",
     "bevy_pbr_game",
 ]
 
-# The vendored bevy_render fork (multi-render-world support on the remote
-# backend) replaces the crates.io release for every bevy crate in the tree.
+# The vendored bevy forks replace the crates.io releases for every bevy crate
+# in the tree: bevy_render for multi-render-world support on the remote
+# backend, bevy_asset so that re-registering a loader on a shared `AssetServer`
+# reuses its slot instead of appending another copy.
 [patch.crates-io]
+bevy_asset = { path = "bevy_asset" }
 bevy_render = { path = "bevy_render" }
 
 # Bevy is unusably slow fully unoptimized; keep our own crates fast to
