@@ -9,7 +9,7 @@ websocket protocol implemented by `../remote_webgpu`.
 | Crate | What it is |
 | --- | --- |
 | `remote-wgpu-sys` | Raw FFI bindings to the `remote_webgpu` C static library (built by `build.rs` with `cc` + `protoc`).  `src/ffi.rs` is generated from `webgpu.h` by `tools/generate_ffi.py`, together with a C-vs-Rust struct-size self-check (`cargo test -p remote-wgpu-sys`). |
-| `remote-wgpu-runtime` | The shared runtime both API crates rendezvous through: a websocket server accepting any number of browser clients on the port the application picks with `set_port()` (`REMOTE_WEBGPU_PORT` overrides it; there is no default).  Each connection gets its own remote instance/adapter, reader thread, event queue (resizes, keys, pointer) and present/vsync pacing.  All C calls happen under one reentrant lock. |
+| `remote-wgpu-runtime` | The shared runtime both API crates rendezvous through: a websocket server accepting any number of browser clients on the port the application picks with `set_port()` (`REMOTE_WEBGPU_PORT` overrides it; there is no default).  Each connection gets its own remote instance/adapter, reader thread, event queue (resizes, keys, pointer) and present/vsync pacing.  All C calls happen under one reentrant lock.  Behind a reverse proxy, `REMOTE_WEBGPU_TRUSTED_PROXIES` says whose forwarding headers name the real client (see [Behind a reverse proxy](#behind-a-reverse-proxy)). |
 | `wgpu` | The wgpu-compatible API, implementing the wgpu **29** public API on top of the real [`wgpu-types`](https://crates.io/crates/wgpu-types) 29 crate (so all plain data types are shared with any other crate compiled against wgpu 29 — bevy above all): instance/adapter/device/queue, buffers with mapping, textures/views/samplers, bind groups, render + compute pipelines and passes, render bundles, query sets, error scopes, the surface swapchain, `ShaderSource::Wgsl` and `ShaderSource::Naga` (Naga IR is written back out as WGSL for the browser), and `wgpu::util` (`DeviceExt`, `StagingBelt`, `TextureBlitter`, `include_wgsl!`, `vertex_attr_array!`). |
 | `bevy_asset` | A vendored copy of bevy 0.19.1's asset crate with one change: registering an asset loader type that is already registered reuses its slot instead of appending another copy.  Every player who joins builds a throwaway `App` on the one shared `AssetServer`, and upstream had no way at any visibility to remove the duplicates.  See [`docs/shared-asset-server-loader-growth.md`](../docs/shared-asset-server-loader-growth.md). |
 | `bevy_render` | A vendored fork of bevy 0.19's renderer with **multi-render-world** support: one complete render world (device, pipeline cache, render graph) per connected browser tab, all extracting from the one main world.  See [The bevy_render fork](#the-bevy_render-fork). |
@@ -134,6 +134,56 @@ whole tree is the build context):
 docker build -f rust/bevy_pbr_game/Dockerfile -t bevy_pbr_game .
 docker run --rm -p 8000:8000 bevy_pbr_game
 ```
+
+### Behind a reverse proxy
+
+With a proxy in front (nginx, Caddy, a load balancer), every connection's
+TCP peer is the proxy, so that is the address the runtime logs -- the real
+client only exists in a forwarding header.  Such headers are written by
+whoever connects, so the runtime ignores them unless the deployment names
+the peers allowed to set them:
+
+| Variable | Meaning |
+| --- | --- |
+| `REMOTE_WEBGPU_TRUSTED_PROXIES` | Comma-separated IPs and CIDR blocks whose forwarding header is believed (`10.0.0.0/8, 192.168.1.7`), or `any` for every peer.  **Unset (the default) means no header is ever believed** and the TCP peer is the client. |
+| `REMOTE_WEBGPU_FORWARDED_HEADER` | The header carrying the chain; `x-forwarded-for` by default.  `x-real-ip` or any other comma-separated list of addresses (closest-to-the-client first) works; RFC 7239 `Forwarded:` syntax is not parsed. |
+| `REMOTE_WEBGPU_TRUSTED_PROXY_HOPS` | How many proxies of your own sit in front, i.e. how many entries to count in from the right of the chain; `1` by default (a single nginx). |
+
+Only the entry your own proxy wrote is read, never the leftmost one, so a
+client that sends a forged `X-Forwarded-For` of its own just adds an entry
+to the left of the truth.  A chain too short for the configured hop count
+is not believed at all, and the peer address stands.  `any` is only safe
+when nothing but the proxy can reach the port (a container network, a
+loopback bind); on a publicly reachable port it lets anyone forge their
+address.  A malformed setting stops the process at startup rather than
+quietly serving under the wrong policy.
+
+With a typical nginx front end:
+
+```nginx
+location / {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;   # websockets
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+}
+```
+
+```sh
+REMOTE_WEBGPU_TRUSTED_PROXIES=127.0.0.1 cargo run --release -p bevy_pbr_game
+```
+
+and the game logs each player's own address:
+
+```
+remote-wgpu: client #2 connected from 198.51.100.7 (via proxy 127.0.0.1:41xxx)
+INFO player 1 joined (client 2 from 198.51.100.7 (via proxy 127.0.0.1:41xxx))
+```
+
+Applications get the same thing from `Client::ip()` (the client's real
+address as far as the policy allows it to be known) and `Client::addr()`
+(that, plus the socket the connection came from).
 
 One `App` holds the shared world; the
 first tab's GPU becomes the built-in `RenderApp` (created with

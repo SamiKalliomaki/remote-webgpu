@@ -24,7 +24,11 @@ Edge, or Firefox with WebGPU enabled), on any machine that can reach the
 server.  Every tab that opens the page joins as a new player; move with
 WASD or the arrow keys, dash with space.  `REMOTE_WEBGPU_PORT=9000`
 changes the port; the page connects back to whatever origin served it, or
-to `?server=ws://host:port` if given.  `cargo run -p bevy_pbr_game --
+to `?server=ws://host:port` if given.  Behind a reverse proxy, set
+`REMOTE_WEBGPU_TRUSTED_PROXIES` to the proxy's address so players are
+logged by their own IP rather than the proxy's (see
+[`rust/README.md`](rust/README.md#behind-a-reverse-proxy) -- forwarding
+headers are ignored until you do).  `cargo run -p bevy_pbr_game --
 --frames 30 --screenshot shot.png` renders headlessly and exits, which is
 how it is tested.
 

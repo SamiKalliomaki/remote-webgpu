@@ -27,6 +27,9 @@ use std::time::Duration;
 use remote_wgpu_sys as sys;
 use sys::remote as remote_sys;
 
+mod proxy;
+pub use proxy::{ClientAddr, ProxyConfig};
+
 /// How many undrained events one client may have queued.  Clients are
 /// untrusted and can produce events (resizes, key presses, pointer moves)
 /// far faster than an application drains them, so the queue is bounded and
@@ -205,6 +208,8 @@ pub struct Client {
     send_ctx: Box<SendCtx>,
     /// Weak self-handle, so `&Client` can be turned back into an `Arc`.
     this: Weak<Client>,
+    /// Where this client connected from; see [`ClientAddr`].
+    addr: ClientAddr,
 
     events: Mutex<VecDeque<ClientEvent>>,
     disconnected: AtomicBool,
@@ -281,6 +286,7 @@ impl Client {
                     adapter,
                     send_ctx,
                     this: this.clone(),
+                    addr: ClientAddr::none(),
                     events: Mutex::new(VecDeque::new()),
                     disconnected: AtomicBool::new(false),
                     vsync_pending: AtomicU64::new(0),
@@ -314,6 +320,21 @@ impl Client {
     /// Small integer identifying this client (1 for the first connection).
     pub fn id(&self) -> u64 {
         self.id
+    }
+
+    /// Where this client connected from: its real IP as far as the
+    /// reverse-proxy configuration allows it to be known, plus the socket
+    /// the connection actually came from.  `Display` renders both
+    /// (`198.51.100.7 (via proxy 10.0.0.2)`), which is what logs want.
+    pub fn addr(&self) -> ClientAddr {
+        self.addr
+    }
+
+    /// The client's IP address: what a trusted reverse proxy reported for
+    /// it, else the address the connection came from.  `None` only for the
+    /// loopback client, which has no connection.
+    pub fn ip(&self) -> Option<std::net::IpAddr> {
+        self.addr.ip()
     }
 
     pub fn instance(&self) -> sys::WGPUInstance {
@@ -387,6 +408,10 @@ pub struct Runtime {
     /// Static files served to plain HTTP requests on the websocket port,
     /// keyed by request path (see [`Runtime::serve_static`]).
     static_files: Mutex<HashMap<String, StaticFile>>,
+
+    /// Which peers, if any, are allowed to name their client's real
+    /// address in a forwarding header.
+    proxy: ProxyConfig,
 }
 
 /// One file registered with [`Runtime::serve_static`].
@@ -517,7 +542,7 @@ unsafe extern "C" fn event_cb(
 
 impl Runtime {
     /// The runtime's own state, with nothing listening yet.
-    fn bare(port: u16) -> Runtime {
+    fn bare(port: u16, proxy: ProxyConfig) -> Runtime {
         Runtime {
             lock: CLock::new(),
             port,
@@ -527,6 +552,7 @@ impl Runtime {
             clients: Mutex::new(Vec::new()),
             unclaimed: Mutex::new(VecDeque::new()),
             static_files: Mutex::new(HashMap::new()),
+            proxy,
         }
     }
 
@@ -535,7 +561,7 @@ impl Runtime {
     /// behaves normally; there is simply no browser at the other end and no
     /// port to bind.
     fn start_offline() -> &'static Runtime {
-        Box::leak(Box::new(Runtime::bare(0)))
+        Box::leak(Box::new(Runtime::bare(0, ProxyConfig::disabled())))
     }
 
     /// Panics unless this runtime is actually serving clients.  Anything that
@@ -563,11 +589,15 @@ impl Runtime {
                 port => port,
             },
         };
+        // Read before binding: a bad address policy should stop the
+        // process, not start serving under the wrong one.
+        let proxy = ProxyConfig::from_env();
         let listener = TcpListener::bind(("0.0.0.0", port))
             .unwrap_or_else(|e| panic!("remote-wgpu: failed to bind port {port}: {e}"));
         eprintln!("remote-wgpu: accepting clients on ws://localhost:{port}");
+        eprintln!("remote-wgpu: {}", proxy.describe());
 
-        let runtime: &'static Runtime = Box::leak(Box::new(Runtime::bare(port)));
+        let runtime: &'static Runtime = Box::leak(Box::new(Runtime::bare(port, proxy)));
 
         std::thread::Builder::new()
             .name("remote-wgpu-accept".into())
@@ -647,6 +677,7 @@ impl Runtime {
         id: u64,
         mut stream: TcpStream,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let peer = stream.peer_addr()?;
         // Bound the whole handshake: a peer that opens a connection and
         // then sends nothing (or a byte at a time) would otherwise pin this
         // thread and its socket forever.  Cleared once the client is up.
@@ -676,7 +707,12 @@ impl Runtime {
             lower.starts_with("upgrade:") && lower.contains("websocket")
         });
         if is_upgrade {
-            return self.connect_client(id, stream);
+            // Only now, with the request head in hand, can the client's own
+            // address be known: behind a reverse proxy the socket belongs to
+            // the proxy and the client is named in a header, which is
+            // believed only if this peer is configured as trusted.
+            let addr = ClientAddr::new(peer, self.proxy.client_ip(peer.ip(), &text));
+            return self.connect_client(id, stream, addr);
         }
 
         // Plain HTTP: consume the head and answer it.
@@ -726,10 +762,10 @@ impl Runtime {
         &'static self,
         id: u64,
         stream: std::net::TcpStream,
+        addr: ClientAddr,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let peer = stream.peer_addr()?;
         stream.set_nodelay(true).ok();
-        eprintln!("remote-wgpu: client #{id} connected from {peer}");
+        eprintln!("remote-wgpu: client #{id} connected from {addr}");
 
         let mut read_ws = tungstenite::accept(stream.try_clone()?)?;
         // A second websocket over a clone of the stream, used only for
@@ -790,6 +826,7 @@ impl Runtime {
                     adapter,
                     send_ctx,
                     this: this.clone(),
+                    addr,
                     events: Mutex::new(VecDeque::new()),
                     disconnected: AtomicBool::new(false),
                     vsync_pending: AtomicU64::new(0),

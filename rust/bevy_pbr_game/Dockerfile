@@ -48,5 +48,13 @@ COPY --from=build /bevy_pbr_game /usr/local/bin/bevy_pbr_game
 
 USER game
 # The game listens on 0.0.0.0:8000; REMOTE_WEBGPU_PORT overrides the port.
+#
+# Behind a reverse proxy, set REMOTE_WEBGPU_TRUSTED_PROXIES to the proxy's
+# address (or CIDR block) so connections are attributed to the real client
+# instead of the proxy; forwarding headers are ignored until then, because
+# anything that can reach the port can send them.  See rust/README.md.
+#
+#     docker run --rm -p 8000:8000 \
+#         -e REMOTE_WEBGPU_TRUSTED_PROXIES=172.17.0.0/16 bevy_pbr_game
 EXPOSE 8000
 ENTRYPOINT ["/usr/local/bin/bevy_pbr_game"]

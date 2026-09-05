@@ -288,7 +288,11 @@ fn attach_view(
     render_world.insert_resource(OwnedWindow(window_entity));
     render_world.insert_resource(SyncQueueIndex(sync_queue));
 
-    info!("player {slot} joined (client {})", client.id());
+    info!(
+        "player {slot} joined (client {} from {})",
+        client.id(),
+        client.addr()
+    );
     PlayerView {
         client,
         label,

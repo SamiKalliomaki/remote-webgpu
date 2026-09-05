@@ -11,6 +11,9 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
+use tungstenite::client::IntoClientRequest;
+use tungstenite::http::header::{HeaderName, HeaderValue};
+
 const PROTOCOL_VERSION: u64 = remote_wgpu_sys::PROTOCOL_VERSION as u64;
 
 /// Tests share one runtime and claim clients from one queue, so they must
@@ -74,13 +77,28 @@ impl FakeClient {
     /// Connect and complete the handshake; returns once the runtime lists
     /// the new client.
     pub fn connect(runtime: &remote_wgpu_runtime::Runtime) -> FakeClient {
+        FakeClient::connect_with_headers(runtime, &[])
+    }
+
+    /// As [`FakeClient::connect`], with extra headers on the websocket
+    /// upgrade request -- how a reverse proxy (or a client pretending to be
+    /// one) names the address behind it.
+    pub fn connect_with_headers(
+        runtime: &remote_wgpu_runtime::Runtime,
+        headers: &[(&str, &str)],
+    ) -> FakeClient {
         let before = runtime.clients().len();
         let stream = TcpStream::connect(("127.0.0.1", runtime.port())).unwrap();
-        let (ws, _response) = tungstenite::client(
-            format!("ws://127.0.0.1:{}/", runtime.port()),
-            stream,
-        )
-        .unwrap();
+        let mut request = format!("ws://127.0.0.1:{}/", runtime.port())
+            .into_client_request()
+            .unwrap();
+        for (name, value) in headers {
+            request.headers_mut().insert(
+                HeaderName::from_bytes(name.as_bytes()).unwrap(),
+                HeaderValue::from_str(value).unwrap(),
+            );
+        }
+        let (ws, _response) = tungstenite::client(request, stream).unwrap();
         let mut client = FakeClient { ws };
         client.send_envelope(&client_hello());
         wait_for(|| runtime.clients().len() > before, "the handshake to complete");
